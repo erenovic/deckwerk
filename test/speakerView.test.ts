@@ -86,7 +86,7 @@ describe('speaker view', () => {
       expect(scale()).toBe('2.5');
       expect(larger().disabled).toBe(true);
       for (let i = 0; i < 20; i++) smaller().click();
-      expect(scale()).toBe('0.7');
+      expect(scale()).toBe('0.4');
       expect(smaller().disabled).toBe(true);
       smaller().click();
       larger().click();
@@ -94,7 +94,27 @@ describe('speaker view', () => {
 
       // The next talk opens at the size the presenter left it.
       const again = open();
-      expect(scale()).toBe('0.8');
+      expect(scale()).toBe('0.5');
+      again.destroy();
+    });
+
+    it('sizes all three timers together with one pair of buttons, apart from the notes', () => {
+      const view = open();
+      const timers = () => host.style.getPropertyValue('--speaker-timers-scale');
+      const timerButton = (which: 'smaller' | 'larger') =>
+        host.querySelector<HTMLButtonElement>(`.timers .speaker-timers-${which}`)!;
+      expect(timers()).toBe('1');
+      for (let i = 0; i < 20; i++) timerButton('smaller').click();
+      expect(timers()).toBe('0.3');
+      expect(timerButton('smaller').disabled).toBe(true);
+      expect(timerButton('larger').title).toBe('Larger timers (30%)');
+      // One variable scales every clock; the notes keep their own size.
+      expect(scale()).toBe('1');
+      timerButton('larger').click();
+      view.destroy();
+
+      const again = open();
+      expect(timers()).toBe('0.4');
       again.destroy();
     });
 

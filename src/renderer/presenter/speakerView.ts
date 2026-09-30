@@ -62,6 +62,10 @@ const MARKUP = `
         <div class="speaker-next preview"></div>
       </div>
       <section class="timers" aria-label="Presentation timing">
+        <div class="speaker-size speaker-timers-size" role="group" aria-label="Timer text size">
+          <button type="button" class="speaker-timers-smaller" aria-label="Smaller timers" title="Smaller timers">A−</button>
+          <button type="button" class="speaker-timers-larger" aria-label="Larger timers" title="Larger timers">A+</button>
+        </div>
         <div class="presenter-clock presentation-clock"><span>Presentation elapsed</span><strong class="speaker-presentation-timer">00:00</strong></div>
         <div class="presenter-clock slide-clock"><span>Current slide</span><strong class="speaker-slide-timer">00:00</strong></div>
         <div class="presenter-clock wall-clock"><span>Local time</span><strong class="speaker-wall-clock">--:--</strong></div>
@@ -69,7 +73,7 @@ const MARKUP = `
       <section class="notes-panel" aria-label="Speaker notes">
         <div class="panel-heading">
           <h2>Notes</h2>
-          <div class="speaker-notes-size" role="group" aria-label="Notes text size">
+          <div class="speaker-size speaker-notes-size" role="group" aria-label="Notes text size">
             <button type="button" class="speaker-notes-smaller" aria-label="Smaller notes text" title="Smaller notes text">A−</button>
             <button type="button" class="speaker-notes-larger" aria-label="Larger notes text" title="Larger notes text">A+</button>
           </div>
@@ -88,26 +92,65 @@ const MARKUP = `
 `;
 
 /** Notes text sizes, as multiples of the panel's default size. */
-export const NOTES_SCALES = [0.7, 0.8, 0.9, 1, 1.15, 1.3, 1.5, 1.75, 2, 2.5] as const;
-const NOTES_SCALE_KEY = 'deckwerk.presenter.notes-scale';
+export const NOTES_SCALES = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.15, 1.3, 1.5, 1.75, 2, 2.5] as const;
+/** Timer sizes, as multiples of their default size; the default is already large. */
+export const TIMER_SCALES = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.15, 1.3, 1.5] as const;
 const SIDEBAR_SIZE_KEY = 'deckwerk.presenter.sidebar';
 const NOTES_SIZE_KEY = 'deckwerk.presenter.notes';
 
-function readNotesScale(): number {
+function readScale(key: string, scales: readonly number[]): number {
   try {
-    const stored = Number(window.localStorage.getItem(NOTES_SCALE_KEY));
-    return (NOTES_SCALES as readonly number[]).includes(stored) ? stored : 1;
+    const stored = Number(window.localStorage.getItem(key));
+    return scales.includes(stored) ? stored : 1;
   } catch {
     return 1;
   }
 }
 
-function storeNotesScale(scale: number): void {
+function storeScale(key: string, scale: number): void {
   try {
-    window.localStorage.setItem(NOTES_SCALE_KEY, String(scale));
+    window.localStorage.setItem(key, String(scale));
   } catch {
     // Storage can be unavailable; the size still applies for this session.
   }
+}
+
+/**
+ * An A-/A+ pair stepping `property` on `host` through `scales`. Sizes are the
+ * presenter's own preference, so they live in this viewer's storage rather
+ * than in the deck.
+ */
+function bindTextSize(
+  host: HTMLElement,
+  buttons: { smaller: HTMLButtonElement; larger: HTMLButtonElement },
+  scales: readonly number[],
+  config: { property: string; storageKey: string; noun: string },
+): void {
+  const { smaller, larger } = buttons;
+  let scale = readScale(config.storageKey, scales);
+  const apply = () => {
+    host.style.setProperty(config.property, String(scale));
+    const at = scales.indexOf(scale);
+    smaller.disabled = at <= 0;
+    larger.disabled = at >= scales.length - 1;
+    const percent = `${Math.round(scale * 100)}%`;
+    smaller.title = `Smaller ${config.noun} (${percent})`;
+    larger.title = `Larger ${config.noun} (${percent})`;
+  };
+  const step = (delta: number) => {
+    const next = scales[Math.min(Math.max(scales.indexOf(scale) + delta, 0), scales.length - 1)];
+    if (next === scale) return;
+    scale = next;
+    storeScale(config.storageKey, scale);
+    apply();
+  };
+  for (const button of [smaller, larger]) {
+    // Space and Enter advance the talk; a focused button would take them.
+    button.addEventListener('pointerdown', (event) => event.preventDefault());
+  }
+  smaller.addEventListener('click', () => step(-1));
+  larger.addEventListener('click', () => step(1));
+  apply();
 }
 
 export function createSpeakerView(options: SpeakerViewOptions): SpeakerView {
@@ -133,36 +176,15 @@ export function createSpeakerView(options: SpeakerViewOptions): SpeakerView {
   const layout = pick('.speaker-layout');
   const sidebar = pick('.speaker-sidebar');
   const notesPanel = pick('.notes-panel');
-  const smaller = pick<HTMLButtonElement>('.speaker-notes-smaller');
-  const larger = pick<HTMLButtonElement>('.speaker-notes-larger');
 
-  // Notes text size. The presenter's own preference, so it lives in this
-  // viewer's storage rather than in the deck.
-  let notesScale = readNotesScale();
-  const applyNotesScale = () => {
-    host.style.setProperty('--speaker-notes-scale', String(notesScale));
-    const at = (NOTES_SCALES as readonly number[]).indexOf(notesScale);
-    smaller.disabled = at <= 0;
-    larger.disabled = at >= NOTES_SCALES.length - 1;
-    const percent = `${Math.round(notesScale * 100)}%`;
-    smaller.title = `Smaller notes text (${percent})`;
-    larger.title = `Larger notes text (${percent})`;
-  };
-  const stepNotesScale = (delta: number) => {
-    const at = (NOTES_SCALES as readonly number[]).indexOf(notesScale);
-    const next = NOTES_SCALES[Math.min(Math.max(at + delta, 0), NOTES_SCALES.length - 1)];
-    if (next === notesScale) return;
-    notesScale = next;
-    storeNotesScale(notesScale);
-    applyNotesScale();
-  };
-  for (const button of [smaller, larger]) {
-    // Space and Enter advance the talk; a focused button would take them.
-    button.addEventListener('pointerdown', (event) => event.preventDefault());
-  }
-  smaller.addEventListener('click', () => stepNotesScale(-1));
-  larger.addEventListener('click', () => stepNotesScale(1));
-  applyNotesScale();
+  bindTextSize(host, {
+    smaller: pick<HTMLButtonElement>('.speaker-notes-smaller'),
+    larger: pick<HTMLButtonElement>('.speaker-notes-larger'),
+  }, NOTES_SCALES, { property: '--speaker-notes-scale', storageKey: 'deckwerk.presenter.notes-scale', noun: 'notes text' });
+  bindTextSize(host, {
+    smaller: pick<HTMLButtonElement>('.speaker-timers-smaller'),
+    larger: pick<HTMLButtonElement>('.speaker-timers-larger'),
+  }, TIMER_SCALES, { property: '--speaker-timers-scale', storageKey: 'deckwerk.presenter.timers-scale', noun: 'timers' });
 
   // Drag the border between the current slide and the sidebar, and the one
   // above the notes. Before the window is laid out there is nothing to bound
@@ -316,6 +338,7 @@ export function createSpeakerView(options: SpeakerViewOptions): SpeakerView {
       unbindSidebar();
       unbindNotes();
       host.style.removeProperty('--speaker-notes-scale');
+      host.style.removeProperty('--speaker-timers-scale');
       host.style.removeProperty('--speaker-sidebar-width');
       host.style.removeProperty('--speaker-notes-height');
       theme?.remove();
