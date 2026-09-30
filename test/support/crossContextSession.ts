@@ -223,6 +223,12 @@ export interface CrossSession {
   doubleClick(elementId: string): Promise<void>;
   clickEmpty(): Promise<void>;
   clickRail(index: number): Promise<void>;
+  /**
+   * A real native drag of rail row `from` onto row `onto`, released in its
+   * upper ('before') or lower ('after') half. The press is a real pointer
+   * press, so it selects exactly as a person's would.
+   */
+  dragRail(from: number, onto: number, half: 'before' | 'after'): Promise<void>;
   /** A real primary-button marquee drag along viewport points. */
   dragPath(points: Array<{ x: number; y: number }>): Promise<void>;
   /** Viewport box of a selector. */
@@ -323,6 +329,10 @@ function buildSession(cdp: Cdp): CrossSession {
       }
       await cdp.evaluate(`(() => {
         window.store.commit((deck) => {
+          // A rail drag may have swapped the slides; the fixture is by position.
+          window.__xcSlideOrder ??= deck.slides.map((slide) => slide.id);
+          const byId = new Map(deck.slides.map((slide) => [slide.id, slide]));
+          deck.slides = window.__xcSlideOrder.map((id) => byId.get(id));
           deck.slides[0].elements = ${JSON.stringify(startingElements())};
           deck.slides[1].elements = ${JSON.stringify([secondSlideElement()])};
         }, { label: 'Cross-context fixture' });
@@ -353,6 +363,45 @@ function buildSession(cdp: Cdp): CrossSession {
     },
     async clickRail(index) {
       await cdp.click(`.rail-item[data-index="${index}"]`, `rail slide ${index}`);
+      await wait(150);
+    },
+    async dragRail(from, onto, half) {
+      const rowBox = (index: number) => session.boxOf(`.rail-item[data-index="${index}"]`);
+      const source = await rowBox(from);
+      const target = await rowBox(onto);
+      const start = { x: source.left + source.width / 2, y: source.top + source.height / 2 };
+      const end = {
+        x: target.left + target.width / 2,
+        y: target.top + target.height * (half === 'before' ? 0.25 : 0.75),
+      };
+      // Chromium runs a native drag in a nested OS loop that synthetic mouse
+      // events cannot drive. Intercepting hands the drag to DevTools instead:
+      // the press and first moves start it, and dispatchDragEvent finishes it.
+      await cdp.call('Input.setInterceptDrags', { enabled: true });
+      try {
+        const intercepted = cdp.waitForEvent('Input.dragIntercepted');
+        await cdp.call('Input.dispatchMouseEvent', {
+          type: 'mouseMoved', x: start.x, y: start.y, button: 'none', buttons: 0,
+        });
+        await cdp.call('Input.dispatchMouseEvent', {
+          type: 'mousePressed', x: start.x, y: start.y, button: 'left', buttons: 1, clickCount: 1,
+        });
+        for (const t of [0.1, 0.3, 0.6, 1]) {
+          await cdp.call('Input.dispatchMouseEvent', {
+            type: 'mouseMoved', button: 'left', buttons: 1,
+            x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t,
+          });
+        }
+        const { data } = await intercepted;
+        for (const type of ['dragEnter', 'dragOver', 'drop']) {
+          await cdp.call('Input.dispatchDragEvent', { type, x: end.x, y: end.y, data });
+        }
+        await cdp.call('Input.dispatchMouseEvent', {
+          type: 'mouseReleased', x: end.x, y: end.y, button: 'left', buttons: 0, clickCount: 1,
+        });
+      } finally {
+        await cdp.call('Input.setInterceptDrags', { enabled: false });
+      }
       await wait(150);
     },
     async dragPath(points) {
@@ -429,8 +478,10 @@ function buildSession(cdp: Cdp): CrossSession {
     allElementIds() {
       return cdp.evaluate<string[]>(`(() => {
         const deck = window.store.get().deck;
-        return deck.slides.flatMap((slide, index) =>
-          slide.elements.map((el) => index + ':' + el.id));
+        // Qualified by slide id, not position: a rail drag reorders slides
+        // without moving any element between them.
+        return deck.slides.flatMap((slide) =>
+          slide.elements.map((el) => slide.id + ':' + el.id));
       })()`);
     },
     deckSnapshot() {

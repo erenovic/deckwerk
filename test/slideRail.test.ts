@@ -18,6 +18,12 @@ function pickRow(row: HTMLElement, shiftKey = false): void {
   row.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, shiftKey }));
 }
 
+/** A whole plain click: the press, then the click a press without a drag ends in. */
+function clickRow(row: HTMLElement): void {
+  pickRow(row);
+  row.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+}
+
 function togglePickRow(row: HTMLElement): void {
   row.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, metaKey: true }));
 }
@@ -542,7 +548,7 @@ describe('slide rail keyboard insertion', () => {
     expect(host.querySelectorAll('.rail-item.selected')).toHaveLength(3);
     expect(host.querySelectorAll('.rail-item.active')).toHaveLength(1);
 
-    pickRow(host.querySelectorAll<HTMLElement>('.rail-item')[2]);
+    clickRow(host.querySelectorAll<HTMLElement>('.rail-item')[2]);
     expect([...store.get().slideSelection]).toEqual(['slide-3']);
     expect(host.querySelectorAll('.rail-item.selected')).toHaveLength(1);
   });
@@ -927,5 +933,133 @@ describe('a drag that reorders nothing', () => {
     drag(first, 'dragend');
 
     expect(host.querySelectorAll('.drop-before, .drop-after')).toHaveLength(0);
+  });
+});
+
+describe('dragging slides to reorder them', () => {
+  beforeEach(() => document.body.replaceChildren());
+
+  /**
+   * jsdom lays nothing out, so every row's rect is zero-sized at the top: a
+   * pointer at y = -1 is in a row's upper half (drop before it) and y = 0 in
+   * its lower half (drop after it).
+   */
+  const BEFORE = -1;
+  const AFTER = 0;
+
+  function dragEvent(row: HTMLElement, type: string, clientY = AFTER): void {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientY });
+    Object.defineProperty(event, 'dataTransfer', {
+      value: { effectAllowed: '', dropEffect: '', setData: () => {}, getData: () => '', setDragImage: () => {} },
+    });
+    row.dispatchEvent(event);
+  }
+
+  /** Press on `from`, drag it over `onto` and drop — the event order Chromium delivers. */
+  function dragOnto(host: HTMLElement, from: number, onto: number, clientY: number): void {
+    const rows = () => host.querySelectorAll<HTMLElement>('.rail-item');
+    const source = rows()[from];
+    const target = rows()[onto];
+    pickRow(source);
+    dragEvent(source, 'dragstart');
+    dragEvent(target, 'dragover', clientY);
+    dragEvent(target, 'drop', clientY);
+    dragEvent(source, 'dragend');
+  }
+
+  function fiveSlides() {
+    const env = setup();
+    env.store.commit((deck) => {
+      for (const n of [3, 4, 5]) {
+        deck.slides.push({
+          id: `slide-${n}`, name: `S${n}`, background: { color: null, image: null },
+          notes: '', elements: [], timeline: [],
+        });
+      }
+    }, { history: false });
+    const ids = () => env.store.get().deck.slides.map((slide) => slide.id);
+    return { ...env, ids, first: ids()[0] };
+  }
+
+  it('moves a single slide and makes it current', () => {
+    const { store, host, ids, first } = fiveSlides();
+    dragOnto(host, 0, 2, AFTER);
+    expect(ids()).toEqual(['slide-2', 'slide-3', first, 'slide-4', 'slide-5']);
+    expect(store.get().slideIndex).toBe(2);
+    expect([...store.get().slideSelection]).toEqual([first]);
+  });
+
+  it('keeps a multi-slide selection when a member is pressed, so the group can be dragged', () => {
+    const { store, host } = fiveSlides();
+    const rows = () => host.querySelectorAll<HTMLElement>('.rail-item');
+    pickRow(rows()[1]);
+    pickRow(rows()[3], true);
+    pickRow(rows()[2]);
+    expect([...store.get().slideSelection].sort()).toEqual(['slide-2', 'slide-3', 'slide-4']);
+    expect(store.get().slideIndex).toBe(2);
+  });
+
+  it('moves a contiguous selection as one block, as one undo step, and keeps it selected', () => {
+    const { store, host, ids, first } = fiveSlides();
+    const rows = () => host.querySelectorAll<HTMLElement>('.rail-item');
+    pickRow(rows()[1]);
+    pickRow(rows()[2], true);
+    const before = ids();
+
+    dragOnto(host, 2, 4, AFTER);
+    expect(ids()).toEqual([first, 'slide-4', 'slide-5', 'slide-2', 'slide-3']);
+    expect([...store.get().slideSelection].sort()).toEqual(['slide-2', 'slide-3']);
+    expect(store.get().deck.slides[store.get().slideIndex].id).toBe('slide-3');
+    expect(host.querySelectorAll('.rail-item.dragging')).toHaveLength(0);
+    expect(store.history()[0]?.label).toBe('Move 2 slides');
+
+    store.undo();
+    expect(ids()).toEqual(before);
+    expect(store.canUndo()).toBe(false);
+  });
+
+  it('gathers a Cmd-picked scattered selection at the drop point', () => {
+    const { host, ids, first } = fiveSlides();
+    const rows = () => host.querySelectorAll<HTMLElement>('.rail-item');
+    pickRow(rows()[0]);
+    togglePickRow(rows()[2]);
+    togglePickRow(rows()[4]);
+
+    dragOnto(host, 4, 1, BEFORE);
+    expect(ids()).toEqual([first, 'slide-3', 'slide-5', 'slide-2', 'slide-4']);
+  });
+
+  it('dims every dragged row while the group is in flight', () => {
+    const { host } = fiveSlides();
+    const rows = () => host.querySelectorAll<HTMLElement>('.rail-item');
+    pickRow(rows()[1]);
+    pickRow(rows()[3], true);
+    pickRow(rows()[2]);
+    dragEvent(rows()[2], 'dragstart');
+    expect([...host.querySelectorAll<HTMLElement>('.rail-item.dragging')].map((r) => r.dataset.slideId))
+      .toEqual(['slide-2', 'slide-3', 'slide-4']);
+    dragEvent(rows()[2], 'dragend');
+    expect(host.querySelectorAll('.rail-item.dragging')).toHaveLength(0);
+  });
+
+  it('ignores a drop onto the dragged group itself', () => {
+    const { store, host, ids } = fiveSlides();
+    const rows = () => host.querySelectorAll<HTMLElement>('.rail-item');
+    pickRow(rows()[1]);
+    pickRow(rows()[3], true);
+    const before = ids();
+    dragOnto(host, 1, 3, AFTER);
+    expect(ids()).toEqual(before);
+    expect(store.canUndo()).toBe(false);
+    expect(host.querySelectorAll('.drop-before, .drop-after')).toHaveLength(0);
+  });
+
+  it('records nothing for a drop that would leave the order unchanged', () => {
+    const { store, host, ids } = fiveSlides();
+    const before = ids();
+    // Slide 2 dropped just before slide 3 is already where it is.
+    dragOnto(host, 1, 2, BEFORE);
+    expect(ids()).toEqual(before);
+    expect(store.canUndo()).toBe(false);
   });
 });

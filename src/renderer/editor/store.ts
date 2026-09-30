@@ -606,6 +606,29 @@ export class EditorStore {
     this.emit();
   }
 
+  /**
+   * Select exactly these slides with `activeId` current — what a group move in
+   * the rail leaves behind, so the moved slides stay picked for the next one.
+   * Ids that are not in the deck are ignored; an active id outside the rest is
+   * added, since the current slide is always part of the selection.
+   */
+  setSlideSelection(ids: Iterable<string>, activeId: string): void {
+    const slides = this.state.deck.slides;
+    const slideIndex = slides.findIndex((slide) => slide.id === activeId);
+    if (slideIndex === -1) return;
+    const present = new Set(slides.map((slide) => slide.id));
+    const slideSelection = new Set([...ids].filter((id) => present.has(id)));
+    slideSelection.add(activeId);
+    this.slideSelectionAnchor = slideIndex;
+    this.state = {
+      ...this.state,
+      slideIndex,
+      slideSelection,
+      selection: new Set(),
+    };
+    this.emit();
+  }
+
   /** Select one contiguous rail range without first exposing either endpoint. */
   selectSlideRange(startIndex: number, endIndex: number): void {
     if (this.state.deck.slides.length === 0) return;

@@ -6,6 +6,7 @@ import {
   LIST,
   MOD,
   PARA,
+  SHIFT,
   elementSelector,
   startCrossSession,
   type CrossSession,
@@ -137,7 +138,7 @@ function isKnownStaleSlideIdentity(error: string): boolean {
 type OpName =
   | 'click' | 'shift-click' | 'double-click text' | 'double-click image then text'
   | 'type nonce' | 'bold mid-word' | 'escape' | 'click empty' | 'marquee'
-  | 'rail hop' | 'undo' | 'redo' | 'undo round-trip' | 'delete selection'
+  | 'rail hop' | 'rail drag' | 'undo' | 'redo' | 'undo round-trip' | 'delete selection'
   | 'cmd+a';
 
 interface Violation { seed: number; step: number; op: OpName; oracle: string; detail: string }
@@ -383,6 +384,7 @@ function chooseOp(next: () => number, pre: CrossState): OpName {
   add('click empty', 1);
   add('marquee', 1);
   add('rail hop', 2);
+  if (pre.editing === null) add('rail drag', 1);
   add('undo', 2);
   add('redo', 1);
   add('undo round-trip', 1);
@@ -463,6 +465,35 @@ async function performOp(
       const other = pre.slideIndex === 0 ? 1 : 0;
       await session.clickRail(other);
       if (next() < 0.6) await session.clickRail(pre.slideIndex);
+      return 'same';
+    }
+    case 'rail drag': {
+      // Two slides: dragging one past the other swaps them. Selecting both
+      // first makes it a group drag, whose only targets are its own rows, so
+      // nothing may move — and the group must still be selected afterwards.
+      const order = async () => session.cdp.evaluate<string[]>(
+        'window.store.get().deck.slides.map((slide) => slide.id)');
+      const before = await order();
+      const group = next() < 0.35;
+      if (group) {
+        await session.clickRail(0);
+        await session.cdp.clickModified('.rail-item[data-index="1"]', SHIFT, 'shift-click rail slide 1');
+        await wait(150);
+        await session.dragRail(0, 1, 'after');
+      } else if (next() < 0.5) {
+        await session.dragRail(0, 1, 'after');
+      } else {
+        await session.dragRail(1, 0, 'before');
+      }
+      const after = await order();
+      const expected = group ? before : [...before].reverse();
+      if (after.join('|') !== expected.join('|')) {
+        flag('census', `rail drag left slides [${after.join(', ')}], expected [${expected.join(', ')}]`);
+      }
+      if (group) {
+        const selected = await session.cdp.evaluate<number>('window.store.get().slideSelection.size');
+        if (selected !== 2) flag('census', `group drag dropped the selection to ${selected} slide(s)`);
+      }
       return 'same';
     }
     case 'undo':
