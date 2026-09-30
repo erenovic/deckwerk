@@ -434,6 +434,12 @@ export const DeckSchema = z.object({
    * previous look — rather than at whatever card they clicked through last.
    */
   themeHistory: z.array(z.string()).default([]),
+  /**
+   * Colours the author picked in this deck, most recently used first, offered
+   * back in every colour picker. Recording one is not an edit: it saves and
+   * syncs with the deck but never takes an undo step (see `recentColors.ts`).
+   */
+  recentColors: z.array(z.string()).default([]),
   /** Deck-local theme presets, offered and applied exactly like the built-ins. */
   customThemes: z.array(CustomThemeSchema).default([]),
   /** Three fixed, deck-local layout masters. Null preserves legacy hard-coded layouts. */

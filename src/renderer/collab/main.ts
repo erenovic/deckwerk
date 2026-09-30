@@ -8,6 +8,7 @@ import { EditorCanvas } from '../editor/canvas.js';
 import { SpeakerNotesDrawer } from '../editor/speakerNotesDrawer.js';
 import { createDeckWerkButton } from '../editor/aboutDialog.js';
 import { setCommentAuthor } from '../editor/comments.js';
+import { connectRecentColors } from '../editor/colorPicker.js';
 import { CssEditor } from '../editor/cssEditor.js';
 import {
   createToolbarPicker,
@@ -209,6 +210,7 @@ if (!deckId) {
 installNetApi({ deckId, saveTheme: (css) => bridge.sendTheme(css) });
 
 const store = new EditorStore(emptyDeck('Connecting…'));
+connectRecentColors(store);
 // Development builds verify after every in-place patch that the canvas DOM
 // still matches a fresh render of the deck, and report any property the two
 // paths disagree about. See renderInvariants.ts.

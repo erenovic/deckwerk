@@ -23,6 +23,7 @@ import { AgentPanel } from './agentPanel.js';
 import { createDeckWerkButton } from './aboutDialog.js';
 import { trackPreviewFrameRecovery } from '../player/previewFrameRecovery.js';
 import { EditorCanvas } from './canvas.js';
+import { connectRecentColors } from './colorPicker.js';
 import { CssEditor } from './cssEditor.js';
 import { Inspector } from './inspector.js';
 import { HistoryPanel } from './historyPanel.js';
@@ -77,6 +78,7 @@ const el = <T extends HTMLElement>(id: string): T => {
 if (navigator.userAgent.includes('Macintosh')) document.body.classList.add('mac-titlebar');
 
 const store = new EditorStore(emptyDeck());
+connectRecentColors(store);
 // Rail and Morph thumbnails take their poster frames from the main process, so
 // this window never opens a video pipeline for a preview (see posterCache.ts).
 installWindowApiPosterProvider();

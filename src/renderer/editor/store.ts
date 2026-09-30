@@ -85,10 +85,12 @@ export class EditorStore {
    * Fired whenever a local undo unit is born (commit, drag transaction end,
    * history replace) with the deck before and after. Unset in the Electron
    * shell; the collab shell diffs the pair into ops and sends them to the
-   * server. Never fired for remote or external deck replacements.
+   * server. Never fired for remote or external deck replacements. `undoable`
+   * is false for a `history: false` commit, which the collab undo stack must
+   * skip just as the local one does.
    */
   onLocalEdit:
-    | ((prev: Deck, next: Deck, label: string, coalesceKey?: string) => void)
+    | ((prev: Deck, next: Deck, label: string, coalesceKey?: string, undoable?: boolean) => void)
     | null = null;
 
   /** Signals that the independently persisted history needs a later flush. */
@@ -404,7 +406,7 @@ export class EditorStore {
         this.currentHistoryId = null;
         this.emitHistory();
       }
-      this.onLocalEdit?.(previous, next, opts.label ?? 'Edit slide', opts.coalesceKey);
+      this.onLocalEdit?.(previous, next, opts.label ?? 'Edit slide', opts.coalesceKey, opts.history !== false);
     }
     this.emit();
   }
