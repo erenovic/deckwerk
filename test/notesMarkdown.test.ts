@@ -47,6 +47,36 @@ describe('speaker notes markdown', () => {
     expect(html).toContain('the teaser');
   });
 
+  it('renders inline and display math with KaTeX, as the slides do', () => {
+    const inline = renderNotesMarkdown('The loss is $a_1 + b_1 = \\sum_i x_i$, so *pause*.');
+    expect(inline).toContain('class="katex"');
+    expect(inline).not.toContain('katex-display');
+    // Underscores inside the formula must not turn into emphasis.
+    expect(inline).not.toContain('<em>1 + b</em>');
+    expect(inline).toContain('<em>pause</em>');
+
+    const block = renderNotesMarkdown('Recall:\n\n$$\n\\frac{\\partial L}{\\partial w}\n$$\n\nThen move on.');
+    expect(block).toContain('katex-display');
+    expect(block).toContain('<p>Then move on.</p>');
+
+    expect(renderNotesMarkdown('where $$E = mc^2$$ holds')).toContain('katex-display');
+  });
+
+  it('keeps an escaped dollar literal and survives a malformed formula', () => {
+    const money = renderNotesMarkdown('It costs \\$5 and \\$10.');
+    expect(money).not.toContain('katex');
+    expect(money).toContain('$5 and $10');
+
+    const broken = renderNotesMarkdown('Oops $\\frac{1}{$ here');
+    expect(broken).toContain('katex-error');
+  });
+
+  it('does not let KaTeX emit links or raw HTML', () => {
+    const html = renderNotesMarkdown('$\\href{javascript:alert(1)}{x}$ and $\\htmlClass{evil}{y}$');
+    expect(html).not.toContain('javascript:');
+    expect(html).not.toContain('evil');
+  });
+
   it('renders an empty or blank note as nothing', () => {
     expect(renderNotesMarkdown('')).toBe('');
     expect(renderNotesMarkdown('  \n ')).toBe('');
