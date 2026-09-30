@@ -93,8 +93,22 @@ describe('speaker view', () => {
     expect(notes.textContent).toBe('');
 
     view.setState(state({ cursor: { slide: 1, step: 0 } }));
-    expect(notes.textContent).toBe('Say <b>this</b>\nthen that');
-    expect(notes.children).toHaveLength(0);
+    // Raw HTML in a note is text, never markup; line breaks are kept.
+    expect(notes.textContent?.trim()).toBe('Say <b>this</b>then that');
+    expect(notes.querySelector('b')).toBeNull();
+    expect(notes.querySelector('br')).not.toBeNull();
+    view.destroy();
+  });
+
+  it('renders the notes as Markdown', () => {
+    const view = open();
+    const deck = deckOf(['Intro']);
+    deck.slides[0]!.notes = '**Pause** here\n\n- first\n- second';
+    view.setDeck(deck);
+    view.setState(state({ cursor: { slide: 0, step: 0 } }));
+    const notes = host.querySelector('.speaker-notes')!;
+    expect(notes.querySelector('strong')?.textContent).toBe('Pause');
+    expect([...notes.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['first', 'second']);
     view.destroy();
   });
 

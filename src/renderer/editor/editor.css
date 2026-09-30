@@ -482,6 +482,49 @@ body.panel-resizing iframe { pointer-events: none; }
 
 .notes-drawer-text::placeholder { color: var(--muted); }
 
+/* Edit | Preview: the shared segmented strip, sized to the header's buttons. */
+.notes-drawer-mode { border-radius: 4px; }
+.notes-drawer-mode .segment-button {
+  height: 20px;
+  padding: 0 8px;
+  font: 11px/1 system-ui, -apple-system, sans-serif;
+  cursor: pointer;
+}
+
+.notes-drawer-text[hidden],
+.notes-drawer-preview[hidden] { display: none; }
+
+.notes-drawer-preview {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 12px;
+  outline: none;
+  color: var(--text);
+  font: 13px/1.5 system-ui, -apple-system, sans-serif;
+  overflow-wrap: anywhere;
+}
+
+.notes-drawer-preview:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
+.notes-drawer-preview > :first-child { margin-top: 0; }
+.notes-drawer-preview > :last-child { margin-bottom: 0; }
+.notes-drawer-preview :is(p, ul, ol, blockquote, pre, table) { margin: 0 0 8px; }
+.notes-drawer-preview :is(h1, h2, h3, h4, h5, h6) { margin: 12px 0 6px; line-height: 1.25; }
+.notes-drawer-preview h1 { font-size: 17px; }
+.notes-drawer-preview h2 { font-size: 15px; }
+.notes-drawer-preview :is(h3, h4, h5, h6) { font-size: 13px; }
+.notes-drawer-preview :is(ul, ol) { padding-left: 20px; }
+.notes-drawer-preview blockquote { padding-left: 10px; border-left: 2px solid var(--line); color: var(--muted); }
+.notes-drawer-preview a { color: var(--accent); }
+.notes-drawer-preview hr { border: 0; border-top: 1px solid var(--line); }
+.notes-drawer-preview :is(code, pre) { font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.notes-drawer-preview code { padding: 1px 4px; border-radius: 3px; background: var(--panel-2); }
+.notes-drawer-preview pre { overflow-x: auto; padding: 6px 8px; border-radius: 4px; background: var(--panel-2); }
+.notes-drawer-preview pre code { padding: 0; background: none; }
+.notes-drawer-preview table { border-collapse: collapse; }
+.notes-drawer-preview :is(th, td) { padding: 2px 8px; border: 1px solid var(--line); }
+.notes-drawer-preview .notes-drawer-empty { color: var(--muted); }
+
 .canvas-host.design-preview-active > .notes-toggle,
 .canvas-host.design-preview-active > .notes-drawer { display: none; }
 

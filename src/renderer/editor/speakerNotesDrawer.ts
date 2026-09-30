@@ -1,3 +1,4 @@
+import { renderNotesMarkdown } from '../../shared/notesMarkdown.js';
 import { makePanelResizable } from './panelResize.js';
 import type { EditorStore } from './store.js';
 
@@ -14,9 +15,13 @@ import type { EditorStore } from './store.js';
  * is a single undo step, autosaves like any other edit, and follows the slide
  * through reorders. A change that arrives from disk or a collaborator while
  * the author is mid-sentence waits until they leave the field.
+ *
+ * Preview swaps the text area for the note rendered as Markdown; double-click
+ * it to go back to editing. The chosen mode is remembered like the height.
  */
 
 const STORAGE_KEY = 'deckwerk.editor.speaker-notes';
+const MODE_STORAGE_KEY = 'deckwerk.editor.speaker-notes-mode';
 const HEIGHT_PROPERTY = '--notes-drawer-height';
 
 export interface SpeakerNotesDrawerOptions {
@@ -27,16 +32,37 @@ export interface SpeakerNotesDrawerOptions {
   onStatus?: (message: string) => void;
 }
 
+export type SpeakerNotesMode = 'edit' | 'preview';
+
+function readStoredMode(): SpeakerNotesMode {
+  try {
+    return localStorage.getItem(MODE_STORAGE_KEY) === 'preview' ? 'preview' : 'edit';
+  } catch {
+    return 'edit';
+  }
+}
+
+function storeMode(mode: SpeakerNotesMode): void {
+  try {
+    localStorage.setItem(MODE_STORAGE_KEY, mode);
+  } catch {
+    // Storage can be unavailable (private contexts); the mode is a convenience.
+  }
+}
+
 export class SpeakerNotesDrawer {
   readonly toggleButton: HTMLButtonElement;
   readonly element: HTMLElement;
   readonly textarea: HTMLTextAreaElement;
+  readonly preview: HTMLElement;
   private readonly title: HTMLElement;
   private readonly hint: HTMLElement;
   private editingSlideId: string | null = null;
   /** Slide whose note the text area currently shows. */
   private shownSlideId: string | null = null;
   private open = false;
+  private mode: SpeakerNotesMode = readStoredMode();
+  private readonly modeButtons: HTMLButtonElement[] = [];
 
   constructor(
     private readonly host: HTMLElement,
@@ -68,6 +94,25 @@ export class SpeakerNotesDrawer {
     this.hint.className = 'notes-drawer-hint';
     this.hint.textContent = 'Markdown · notes.md';
 
+    const modes = document.createElement('div');
+    modes.className = 'segmented-buttons notes-drawer-mode';
+    modes.setAttribute('role', 'group');
+    modes.setAttribute('aria-label', 'Notes view');
+    for (const [value, text, title] of [
+      ['edit', 'Edit', 'Edit the Markdown source'],
+      ['preview', 'Preview', 'Show the notes rendered as Markdown'],
+    ] as const) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'segment-button';
+      button.dataset.mode = value;
+      button.textContent = text;
+      button.title = title;
+      button.addEventListener('click', () => this.setMode(value));
+      this.modeButtons.push(button);
+      modes.append(button);
+    }
+
     const openFile = document.createElement('button');
     openFile.type = 'button';
     openFile.className = 'notes-drawer-button';
@@ -84,7 +129,7 @@ export class SpeakerNotesDrawer {
     close.setAttribute('aria-label', 'Close speaker notes');
     close.addEventListener('click', () => this.close());
 
-    header.append(this.title, this.hint, openFile, close);
+    header.append(this.title, this.hint, modes, openFile, close);
 
     this.textarea = document.createElement('textarea');
     this.textarea.className = 'notes-drawer-text';
@@ -110,7 +155,25 @@ export class SpeakerNotesDrawer {
       }
     });
 
-    this.element.append(header, this.textarea);
+    this.preview = document.createElement('div');
+    this.preview.className = 'notes-drawer-preview';
+    this.preview.tabIndex = 0;
+    this.preview.title = 'Double-click to edit';
+    this.preview.setAttribute('aria-label', 'Speaker notes for the current slide, rendered');
+    this.preview.addEventListener('dblclick', (event) => {
+      if ((event.target as Element | null)?.closest('a')) return;
+      this.setMode('edit');
+      this.textarea.focus();
+    });
+    this.preview.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        this.close();
+      }
+    });
+
+    this.element.append(header, this.textarea, this.preview);
     host.append(this.toggleButton, this.element);
 
     makePanelResizable(this.element, {
@@ -137,6 +200,21 @@ export class SpeakerNotesDrawer {
     return this.open;
   }
 
+  getMode(): SpeakerNotesMode {
+    return this.mode;
+  }
+
+  setMode(mode: SpeakerNotesMode): void {
+    if (mode === this.mode) return;
+    if (mode === 'preview') {
+      this.endEditing();
+      if (document.activeElement === this.textarea) this.textarea.blur();
+    }
+    this.mode = mode;
+    storeMode(mode);
+    this.render();
+  }
+
   toggle(): void {
     if (this.open) this.close();
     else this.show();
@@ -151,7 +229,7 @@ export class SpeakerNotesDrawer {
     this.toggleButton.classList.add('active');
     this.render();
     this.reportInset();
-    this.textarea.focus();
+    if (this.mode === 'edit') this.textarea.focus();
   }
 
   close(): void {
@@ -164,6 +242,7 @@ export class SpeakerNotesDrawer {
     this.toggleButton.classList.remove('active');
     this.reportInset();
     if (document.activeElement === this.textarea) this.textarea.blur();
+    if (this.preview.contains(document.activeElement)) this.preview.blur();
   }
 
   private async openFile(): Promise<void> {
@@ -218,6 +297,7 @@ export class SpeakerNotesDrawer {
       if (document.activeElement === this.textarea) this.beginEditing();
     }
     this.renderToggle();
+    this.renderMode();
     if (!this.open) return;
     this.title.textContent = slide
       ? `Notes · Slide ${state.slideIndex + 1}${slide.name ? ` · ${slide.name}` : ''}`
@@ -232,6 +312,26 @@ export class SpeakerNotesDrawer {
       this.textarea.value = text;
     }
     this.shownSlideId = slide?.id ?? null;
+    if (this.mode === 'preview') this.renderPreview(text);
+  }
+
+  private renderMode(): void {
+    const preview = this.mode === 'preview';
+    this.textarea.hidden = preview;
+    this.preview.hidden = !preview;
+    for (const button of this.modeButtons) {
+      const on = button.dataset.mode === this.mode;
+      button.classList.toggle('is-active', on);
+      button.setAttribute('aria-pressed', String(on));
+    }
+  }
+
+  private renderPreview(text: string): void {
+    // Rebuilding on every store change would reset the reader's scroll.
+    if (this.preview.dataset.source === text) return;
+    this.preview.dataset.source = text;
+    this.preview.innerHTML = renderNotesMarkdown(text)
+      || '<p class="notes-drawer-empty">No notes for this slide</p>';
   }
 
   private renderToggle(): void {

@@ -14,7 +14,21 @@ html, body { width: 100%; height: 100%; overflow: hidden; }
 .slide-clock strong { font-size: clamp(42px, 4.5vw, 62px); font-weight: 700; letter-spacing: -.05em; }
 .wall-clock strong { color: var(--text); font-size: clamp(28px, 3vw, 42px); font-weight: 650; letter-spacing: -.04em; }
 .notes-panel { display: grid; grid-template-rows: 30px minmax(0, 1fr); min-height: 0; }
-.speaker-notes { overflow-y: auto; white-space: pre-wrap; font-size: clamp(16px, 1.6vw, 24px); line-height: 1.4; }
+.speaker-notes { overflow-y: auto; font-size: clamp(16px, 1.6vw, 24px); line-height: 1.4; overflow-wrap: anywhere; }
+.speaker-notes > :first-child { margin-top: 0; }
+.speaker-notes > :last-child { margin-bottom: 0; }
+.speaker-notes :is(p, ul, ol, blockquote, pre, table) { margin: 0 0 .6em; }
+.speaker-notes :is(ul, ol) { padding-left: 1.3em; }
+.speaker-view .speaker-notes :is(h1, h2, h3, h4, h5, h6) { margin: .8em 0 .35em; color: var(--text); font-size: 1em; font-weight: 700; line-height: 1.25; text-transform: none; letter-spacing: normal; }
+.speaker-view .speaker-notes h1 { font-size: 1.25em; }
+.speaker-view .speaker-notes h2 { font-size: 1.12em; }
+.speaker-notes blockquote { padding-left: .6em; border-left: 3px solid var(--line); color: var(--muted); }
+.speaker-notes a { color: inherit; }
+.speaker-notes hr { border: 0; border-top: 1px solid var(--line); }
+.speaker-notes :is(code, pre) { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .85em; }
+.speaker-notes pre { overflow-x: auto; white-space: pre-wrap; }
+.speaker-notes table { border-collapse: collapse; }
+.speaker-notes :is(th, td) { padding: .15em .5em; border: 1px solid var(--line); }
 .speaker-position { color: var(--muted); font-size: 15px; white-space: nowrap; }
 .speaker-view h2 { margin: 0; color: var(--muted); font-size: 14px; text-transform: uppercase; letter-spacing: .08em; }
 .preview { position: relative; min-height: 0; overflow: hidden; background: #000; box-shadow: 0 8px 30px rgb(0 0 0 / 40%); }

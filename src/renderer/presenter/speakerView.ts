@@ -1,5 +1,6 @@
 import type { Deck } from '@shared/deck.js';
 import type { PresentationCommand, PresentationState } from '@shared/ipc.js';
+import { renderNotesMarkdown } from '@shared/notesMarkdown.js';
 import { resolveState } from '@shared/timeline.js';
 import { revealImagesWhenDecoded } from '../player/imageDecode.js';
 import { freezePreviewVideos, releasePreviewVideos } from '../player/previewPoster.js';
@@ -152,7 +153,12 @@ export function createSpeakerView(options: SpeakerViewOptions): SpeakerView {
     while (nextSlide <= lastSlide && deck.slides[nextSlide]?.skipped) nextSlide += 1;
     preview(nextHost, nextSlide <= lastSlide ? nextSlide : -1);
     position.textContent = presentationLabel(state, deck.slides.length);
-    notes.textContent = deck.slides[state.cursor.slide]?.notes ?? '';
+    const note = deck.slides[state.cursor.slide]?.notes ?? '';
+    // Builds re-render the view on the same slide; keep the reader's scroll.
+    if (notes.dataset.source !== note) {
+      notes.dataset.source = note;
+      notes.innerHTML = renderNotesMarkdown(note);
+    }
   }
 
   function tick(): void {
