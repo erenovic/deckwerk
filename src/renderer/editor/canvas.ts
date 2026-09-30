@@ -1108,6 +1108,11 @@ export class EditorCanvas {
       warmed.style.cssText = fresh.style.cssText;
       warmed.alt = fresh.alt;
       warmed.draggable = fresh.draggable;
+      // The warm-up asked for async decoding; the rendered image did not. Keep
+      // the fresh render's attributes, or the adopted node reads as stale DOM.
+      const decoding = fresh.getAttribute('decoding');
+      if (decoding === null) warmed.removeAttribute('decoding');
+      else warmed.setAttribute('decoding', decoding);
       fresh.replaceWith(warmed);
       this.warmedImages.delete(src);
     }
