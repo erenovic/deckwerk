@@ -138,7 +138,7 @@ function isKnownStaleSlideIdentity(error: string): boolean {
 type OpName =
   | 'click' | 'shift-click' | 'double-click text' | 'double-click image then text'
   | 'type nonce' | 'bold mid-word' | 'escape' | 'click empty' | 'marquee'
-  | 'rail hop' | 'rail drag' | 'undo' | 'redo' | 'undo round-trip' | 'delete selection'
+  | 'rail hop' | 'rail drag' | 'find next' | 'undo' | 'redo' | 'undo round-trip' | 'delete selection'
   | 'cmd+a';
 
 interface Violation { seed: number; step: number; op: OpName; oracle: string; detail: string }
@@ -385,6 +385,7 @@ function chooseOp(next: () => number, pre: CrossState): OpName {
   add('marquee', 1);
   add('rail hop', 2);
   if (pre.editing === null) add('rail drag', 1);
+  add('find next', 1);
   add('undo', 2);
   add('redo', 1);
   add('undo round-trip', 1);
@@ -494,6 +495,42 @@ async function performOp(
         const selected = await session.cdp.evaluate<number>('window.store.get().slideSelection.size');
         if (selected !== 2) flag('census', `group drag dropped the selection to ${selected} slide(s)`);
       }
+      return 'same';
+    }
+    case 'find next': {
+      // Cmd/Ctrl+F from wherever focus is (mid-edit included), a word that is
+      // on the slide, Enter, Escape. The query must never reach the slide's
+      // text, the bar must land on a highlighted match, and Escape must close.
+      const texts = await session.allTexts();
+      // innerText keeps the line breaks between paragraphs that allTexts
+      // collapses, so every candidate is a word a person could see and type.
+      const shown = await session.cdp.evaluate<string>(`[...document.querySelectorAll('.slide-layer .text-content')]
+        .map((node) => node.innerText).join('\\n')`);
+      const words = shown.match(/[A-Za-z]{4,}/g) ?? [];
+      if (words.length === 0) return 'same';
+      const word = pick(next, words);
+      await session.chord('f', 'KeyF', 70, MOD);
+      await wait(80);
+      await session.type(word);
+      await session.key('Enter', 13);
+      await wait(200);
+      const found = await session.cdp.evaluate<{ open: boolean; count: string; painted: number }>(`(() => ({
+        open: !document.querySelector('.find-bar')?.hidden,
+        count: document.querySelector('.find-count')?.textContent ?? '',
+        painted: CSS.highlights.get('deck-find-current')?.size ?? 0,
+      }))()`);
+      if (!found.open) flag('routing', 'Cmd/Ctrl+F did not open the find bar');
+      else if (!/^\d+ of \d+$/.test(found.count)) flag('routing', `find "${word}" reported "${found.count}"`);
+      else if (found.painted !== 1) flag('routing', `find "${word}" highlighted ${found.painted} current matches`);
+      const after = await session.allTexts();
+      for (const [id, text] of Object.entries(after)) {
+        if (texts[id] !== undefined && texts[id] !== text) {
+          flag('routing', `typing the find query changed ${id}: "${texts[id]}" -> "${text}"`);
+        }
+      }
+      await session.key('Escape', 27);
+      const closed = await session.cdp.evaluate<boolean>(`Boolean(document.querySelector('.find-bar')?.hidden)`);
+      if (!closed) flag('routing', 'Escape did not close the find bar');
       return 'same';
     }
     case 'undo':

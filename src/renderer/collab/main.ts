@@ -5,6 +5,7 @@ import './collab.css';
 import { emptyDeck } from '@shared/deck.js';
 import { setIdSuffix } from '@shared/geometry.js';
 import { EditorCanvas } from '../editor/canvas.js';
+import { FindBar } from '../editor/findBar.js';
 import { SpeakerNotesDrawer } from '../editor/speakerNotesDrawer.js';
 import { createDeckWerkButton } from '../editor/aboutDialog.js';
 import { setCommentAuthor } from '../editor/comments.js';
@@ -229,10 +230,11 @@ canvas.liveTextSync = true;
 // Speaker notes edit like any other slide field and reach peers through the
 // same store; the file behind them lives on the server, so there is nothing
 // local to open here.
-new SpeakerNotesDrawer(el('canvas'), store, {
+const notesDrawer = new SpeakerNotesDrawer(el('canvas'), store, {
   onInsetChange: (px) => canvas.setBottomInset(px),
   onStatus: setStatusMessage,
 });
+const findBar = new FindBar(el('canvas'), store, { notes: notesDrawer });
 const inspector = new Inspector(el('inspector'), store);
 new TimelinePanel(el('timeline'), store);
 new HistoryPanel(el('history'), store);
@@ -408,6 +410,7 @@ const shellDeps: ShellDeps = {
   currentThemeCss: () => cssEditor.getValue(),
   undo: () => bridge.undo(store.get().deck),
   redo: () => bridge.redo(store.get().deck),
+  openFind: () => findBar.show(),
 };
 const clipboard = createClipboardActions(shellDeps);
 bindEditorKeys(shellDeps, clipboard);

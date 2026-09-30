@@ -55,6 +55,8 @@ export interface ShellDeps {
    */
   undo?: () => void;
   redo?: () => void;
+  /** Cmd/Ctrl+F: open the find bar. */
+  openFind?: () => void;
 }
 
 export function wireCanvasInspector(
@@ -292,6 +294,16 @@ export function bindEditorKeys(deps: ShellDeps, clipboard: ClipboardActions): vo
     event.preventDefault();
     void clipboard.pasteInAppClipboard();
   });
+  // Find works from anywhere, mid-edit included. It listens in the capture
+  // phase because a live text edit stops every key from bubbling past the
+  // box; the browser client would otherwise open the browser's own find bar.
+  window.addEventListener('keydown', (e) => {
+    if (!deps.openFind || document.querySelector('[aria-modal="true"]')) return;
+    if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'f') return;
+    e.preventDefault();
+    e.stopPropagation();
+    deps.openFind();
+  }, true);
   window.addEventListener('keydown', (e) => {
     // `window` and `document` are event targets too, and neither answers the
     // element questions below.

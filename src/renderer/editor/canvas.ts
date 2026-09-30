@@ -1553,7 +1553,7 @@ export class EditorCanvas {
 
   private bindViewportGestures(): void {
     this.host.addEventListener('wheel', (event) => {
-      if ((event.target as HTMLElement).closest('.zoom-controls, .notes-drawer')) return;
+      if ((event.target as HTMLElement).closest('.zoom-controls, .notes-drawer, .find-bar')) return;
 
       // Chromium represents a macOS trackpad pinch as a wheel event with the
       // control modifier set. Anchoring it at the pointer makes the gesture
@@ -1984,7 +1984,7 @@ export class EditorCanvas {
     // are ordinary application controls. Capturing their pointer on the canvas
     // changes the pointer-up target and prevents Chromium from synthesising a
     // click, which made all three welcome actions appear inert.
-    if (target.closest('.welcome-screen, .zoom-controls, .notes-toggle, .notes-drawer')) return;
+    if (target.closest('.welcome-screen, .zoom-controls, .notes-toggle, .notes-drawer, .find-bar')) return;
     const slide = this.store.slide;
     if (!slide) return;
     // A press that reaches the canvas was not on a live page (the frame keeps
