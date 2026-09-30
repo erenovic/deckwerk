@@ -6,6 +6,7 @@ import { revealImagesWhenDecoded } from '../player/imageDecode.js';
 import { freezePreviewVideos, releasePreviewVideos } from '../player/previewPoster.js';
 import { applyStageScale, renderSlide } from '../player/render.js';
 import { applyStaticSlideState } from '../player/staticState.js';
+import { makePanelResizable } from '../editor/panelResize.js';
 import { formatElapsed, formatWallClock, presentationLabel } from './model.js';
 
 /**
@@ -66,7 +67,13 @@ const MARKUP = `
         <div class="presenter-clock wall-clock"><span>Local time</span><strong class="speaker-wall-clock">--:--</strong></div>
       </section>
       <section class="notes-panel" aria-label="Speaker notes">
-        <h2>Notes</h2>
+        <div class="panel-heading">
+          <h2>Notes</h2>
+          <div class="speaker-notes-size" role="group" aria-label="Notes text size">
+            <button type="button" class="speaker-notes-smaller" aria-label="Smaller notes text" title="Smaller notes text">A−</button>
+            <button type="button" class="speaker-notes-larger" aria-label="Larger notes text" title="Larger notes text">A+</button>
+          </div>
+        </div>
         <div class="speaker-notes"></div>
       </section>
     </aside>
@@ -79,6 +86,29 @@ const MARKUP = `
     <button class="speaker-end danger">End show</button>
   </footer>
 `;
+
+/** Notes text sizes, as multiples of the panel's default size. */
+export const NOTES_SCALES = [0.7, 0.8, 0.9, 1, 1.15, 1.3, 1.5, 1.75, 2, 2.5] as const;
+const NOTES_SCALE_KEY = 'deckwerk.presenter.notes-scale';
+const SIDEBAR_SIZE_KEY = 'deckwerk.presenter.sidebar';
+const NOTES_SIZE_KEY = 'deckwerk.presenter.notes';
+
+function readNotesScale(): number {
+  try {
+    const stored = Number(window.localStorage.getItem(NOTES_SCALE_KEY));
+    return (NOTES_SCALES as readonly number[]).includes(stored) ? stored : 1;
+  } catch {
+    return 1;
+  }
+}
+
+function storeNotesScale(scale: number): void {
+  try {
+    window.localStorage.setItem(NOTES_SCALE_KEY, String(scale));
+  } catch {
+    // Storage can be unavailable; the size still applies for this session.
+  }
+}
 
 export function createSpeakerView(options: SpeakerViewOptions): SpeakerView {
   const { host, resolveSrc, onCommand, now = () => Date.now() } = options;
@@ -100,6 +130,89 @@ export function createSpeakerView(options: SpeakerViewOptions): SpeakerView {
   const wallClock = pick('.speaker-wall-clock');
   const notes = pick('.speaker-notes');
   const swap = pick<HTMLButtonElement>('.speaker-swap');
+  const layout = pick('.speaker-layout');
+  const sidebar = pick('.speaker-sidebar');
+  const notesPanel = pick('.notes-panel');
+  const smaller = pick<HTMLButtonElement>('.speaker-notes-smaller');
+  const larger = pick<HTMLButtonElement>('.speaker-notes-larger');
+
+  // Notes text size. The presenter's own preference, so it lives in this
+  // viewer's storage rather than in the deck.
+  let notesScale = readNotesScale();
+  const applyNotesScale = () => {
+    host.style.setProperty('--speaker-notes-scale', String(notesScale));
+    const at = (NOTES_SCALES as readonly number[]).indexOf(notesScale);
+    smaller.disabled = at <= 0;
+    larger.disabled = at >= NOTES_SCALES.length - 1;
+    const percent = `${Math.round(notesScale * 100)}%`;
+    smaller.title = `Smaller notes text (${percent})`;
+    larger.title = `Larger notes text (${percent})`;
+  };
+  const stepNotesScale = (delta: number) => {
+    const at = (NOTES_SCALES as readonly number[]).indexOf(notesScale);
+    const next = NOTES_SCALES[Math.min(Math.max(at + delta, 0), NOTES_SCALES.length - 1)];
+    if (next === notesScale) return;
+    notesScale = next;
+    storeNotesScale(notesScale);
+    applyNotesScale();
+  };
+  for (const button of [smaller, larger]) {
+    // Space and Enter advance the talk; a focused button would take them.
+    button.addEventListener('pointerdown', (event) => event.preventDefault());
+  }
+  smaller.addEventListener('click', () => stepNotesScale(-1));
+  larger.addEventListener('click', () => stepNotesScale(1));
+  applyNotesScale();
+
+  // Drag the border between the current slide and the sidebar, and the one
+  // above the notes. Before the window is laid out there is nothing to bound
+  // the size by, so the limits wait for real dimensions.
+  const bounded = (size: number, reserve: number) => (size > 0 ? size - reserve : Number.POSITIVE_INFINITY);
+  const unbindSidebar = makePanelResizable(sidebar, {
+    storageKey: SIDEBAR_SIZE_KEY,
+    sizeTarget: host,
+    width: {
+      property: '--speaker-sidebar-width',
+      // Close to the proportions the view had before it was resizable.
+      initial: Math.round((window.innerWidth || 1470) * 0.3),
+      min: 280,
+      // Keep a usable current-slide preview, and its heading, beside it.
+      max: () => bounded(layout.clientWidth, 420),
+      edge: 'left',
+    },
+  });
+  const unbindNotes = makePanelResizable(notesPanel, {
+    storageKey: NOTES_SIZE_KEY,
+    sizeTarget: host,
+    height: {
+      property: '--speaker-notes-height',
+      initial: Math.round((window.innerHeight || 930) * 0.3),
+      min: 90,
+      // Leave the timers and a sliver of next-slide preview above it.
+      max: () => bounded(sidebar.clientHeight, pick('.timers').offsetHeight + 100),
+      edge: 'top',
+    },
+  });
+
+  // A border drag resizes the previews without a new slide: re-fit the stages
+  // already there instead of rebuilding them (and re-decoding their media).
+  let refitQueued = false;
+  const refit = () => {
+    if (refitQueued) return;
+    refitQueued = true;
+    requestAnimationFrame(() => {
+      refitQueued = false;
+      if (!deck) return;
+      for (const target of [currentHost, nextHost]) {
+        const stage = target.querySelector<HTMLElement>(':scope > .stage');
+        const bounds = target.getBoundingClientRect();
+        if (stage && bounds.width > 0) applyStageScale(stage, deck, { w: bounds.width, h: bounds.height });
+      }
+    });
+  };
+  const previewObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(refit);
+  previewObserver?.observe(currentHost);
+  previewObserver?.observe(nextHost);
 
   if (options.canSwapDisplays === false) {
     swap.remove();
@@ -199,6 +312,12 @@ export function createSpeakerView(options: SpeakerViewOptions): SpeakerView {
     tick,
     destroy() {
       clearInterval(clock);
+      previewObserver?.disconnect();
+      unbindSidebar();
+      unbindNotes();
+      host.style.removeProperty('--speaker-notes-scale');
+      host.style.removeProperty('--speaker-sidebar-width');
+      host.style.removeProperty('--speaker-notes-height');
       theme?.remove();
       theme = null;
       host.replaceChildren();

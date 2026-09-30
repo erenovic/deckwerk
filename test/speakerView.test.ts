@@ -56,6 +56,82 @@ describe('speaker view', () => {
     commands = [];
   });
 
+  describe('notes text size and panel sizes', () => {
+    // A fresh in-memory store per test: the environment's own localStorage
+    // is not a working Storage, and the sizes must round-trip through one.
+    beforeEach(() => {
+      const items = new Map<string, string>();
+      Object.defineProperty(window, 'localStorage', {
+        configurable: true,
+        value: {
+          getItem: (key: string) => items.get(key) ?? null,
+          setItem: (key: string, value: string) => void items.set(key, String(value)),
+          removeItem: (key: string) => void items.delete(key),
+        },
+      });
+    });
+
+    const scale = () => host.style.getPropertyValue('--speaker-notes-scale');
+    const smaller = () => host.querySelector<HTMLButtonElement>('.speaker-notes-smaller')!;
+    const larger = () => host.querySelector<HTMLButtonElement>('.speaker-notes-larger')!;
+
+    it('grows and shrinks the notes text within bounds, and remembers it', () => {
+      const view = open();
+      expect(scale()).toBe('1');
+      larger().click();
+      larger().click();
+      expect(scale()).toBe('1.3');
+      expect(larger().title).toBe('Larger notes text (130%)');
+      for (let i = 0; i < 20; i++) larger().click();
+      expect(scale()).toBe('2.5');
+      expect(larger().disabled).toBe(true);
+      for (let i = 0; i < 20; i++) smaller().click();
+      expect(scale()).toBe('0.7');
+      expect(smaller().disabled).toBe(true);
+      smaller().click();
+      larger().click();
+      view.destroy();
+
+      // The next talk opens at the size the presenter left it.
+      const again = open();
+      expect(scale()).toBe('0.8');
+      again.destroy();
+    });
+
+    it('keeps the size buttons from taking the focus that Space and Enter advance with', () => {
+      const view = open();
+      const press = new MouseEvent('pointerdown', { bubbles: true, cancelable: true });
+      larger().dispatchEvent(press);
+      expect(press.defaultPrevented).toBe(true);
+      view.destroy();
+    });
+
+    it('resizes the sidebar and the notes from their borders, remembering both', () => {
+      const view = open();
+      const sidebarHandle = host.querySelector<HTMLElement>('.speaker-sidebar > .panel-resize-left')!;
+      const notesHandle = host.querySelector<HTMLElement>('.notes-panel > .panel-resize-top')!;
+      expect(sidebarHandle.getAttribute('role')).toBe('separator');
+      expect(notesHandle.getAttribute('role')).toBe('separator');
+
+      const width = () => Number.parseFloat(host.style.getPropertyValue('--speaker-sidebar-width'));
+      const height = () => Number.parseFloat(host.style.getPropertyValue('--speaker-notes-height'));
+      const startWidth = width();
+      const startHeight = height();
+      // The left border widens the sidebar leftwards; the top border raises the notes.
+      sidebarHandle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+      notesHandle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+      expect(width()).toBe(startWidth + 16);
+      expect(height()).toBe(startHeight + 16);
+      view.destroy();
+      expect(host.querySelector('.panel-resize-handle')).toBeNull();
+
+      const again = open();
+      expect(width()).toBe(startWidth + 16);
+      expect(height()).toBe(startHeight + 16);
+      again.destroy();
+    });
+  });
+
   it('previews the current and the following slide', () => {
     const view = open();
     view.setDeck(deckOf(['Intro', 'Method', 'Results']));
