@@ -1,5 +1,6 @@
 import { openContextMenu } from './contextMenuPlacement.js';
 import { makeId } from '@shared/geometry.js';
+import { reorderSlides } from '@shared/slideOrder.js';
 import { recoverPreviewFrames } from '../player/previewFrameRecovery.js';
 import { freezePreviewVideos, releasePreviewVideos } from '../player/previewPoster.js';
 import { renderSlide } from '../player/render.js';
@@ -34,8 +35,12 @@ export class SlideRail {
   /** Mount full slide DOM only near the scroll viewport. */
   private thumbVisibilityObserver: IntersectionObserver | null = null;
   private pendingThumbs = new WeakMap<HTMLElement, { deck: Deck; slide: Slide }>();
-  /** Index of the slide being dragged, while a reorder is in progress. */
-  private dragFrom: number | null = null;
+  /**
+   * The slides being dragged, while a reorder is in progress: every selected
+   * slide when the grabbed row is part of the selection. `grabbed` is the row
+   * under the pointer, which stays current after the drop.
+   */
+  private drag: { ids: Set<string>; grabbed: string } | null = null;
   /** Off-screen node used as the drag image while reordering. */
   private dragImage: HTMLElement | null = null;
   /** The slides array last drawn, so a selection change can skip the rebuild. */
@@ -647,7 +652,7 @@ export class SlideRail {
       item.dataset.index = String(i);
       item.dataset.slideId = slide.id;
       this.rowBySlideId.set(slide.id, item);
-      this.bindReorder(item, i);
+      this.bindReorder(item);
 
       const num = document.createElement('span');
       num.className = 'rail-num';
@@ -706,14 +711,25 @@ export class SlideRail {
         // Shift extends a range from the anchor; Cmd/Ctrl picks or drops this
         // one row on its own, so a scattered set of slides can be deleted,
         // hidden or duplicated in one go.
+        const { slideSelection } = this.store.get();
         if (event.metaKey || event.ctrlKey) this.store.toggleSlideSelection(i);
-        else this.store.selectSlide(i, event.shiftKey);
+        else if (!event.shiftKey && slideSelection.size > 1 && slideSelection.has(slide.id)) {
+          // A plain press inside a multi-slide selection may be the start of
+          // dragging the whole group, so keep the group and only make this
+          // row current. The click that follows a press without a drag
+          // collapses to this row, as a click on any list does.
+          this.store.setSlideSelection(slideSelection, slide.id);
+        } else this.store.selectSlide(i, event.shiftKey);
         this.onSlideActivate?.(i);
         // Picking slides makes the rail the active surface, so Backspace is a
         // slide command from here on. Without this the keystroke reaches the
         // window handler, which only knows about canvas objects, and selecting
         // slides then pressing Backspace appears to do nothing at all.
         this.host.focus({ preventScroll: true });
+      });
+      item.addEventListener('click', (event) => {
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.detail === 0) return;
+        if (this.store.get().slideSelection.size > 1) this.store.selectSlide(i);
       });
       item.addEventListener('contextmenu', (event) => this.onContextMenu(event, i));
       this.rowCache.set(slide, { row: item, index: i });
@@ -813,11 +829,11 @@ export class SlideRail {
    * the document and rendered when setDragImage runs, so it lives off-screen
    * until dragend.
    */
-  private makeDragImage(index: number): HTMLElement {
+  private makeDragImage(index: number, count: number): HTMLElement {
     this.clearDragImage();
     const chip = document.createElement('div');
     chip.className = 'rail-drag-image';
-    chip.textContent = `Slide ${index + 1}`;
+    chip.textContent = count > 1 ? `${count} slides` : `Slide ${index + 1}`;
     document.body.appendChild(chip);
     this.dragImage = chip;
     return chip;
@@ -829,35 +845,49 @@ export class SlideRail {
   }
 
   /**
-   * Drag a slide onto another to reorder.
+   * Drag slides onto another row to reorder them.
    *
    * Uses native HTML drag-and-drop rather than pointer events: the rail is a
    * list, the drop target is a whole row, and the browser's own drop indicator
-   * and auto-scrolling come free.
+   * and auto-scrolling come free. Dragging a row that is part of a multi-slide
+   * selection moves every selected slide as one block, in deck order, and
+   * lands them together even if they were scattered.
+   *
+   * Rows are cached across renders, so everything here resolves the row's
+   * slide by id at event time rather than trusting the index it was built at.
    */
-  private bindReorder(item: HTMLElement, index: number): void {
+  private bindReorder(item: HTMLElement): void {
+    const slideId = item.dataset.slideId!;
+    const indexOf = (id: string) => this.store.get().deck.slides.findIndex((slide) => slide.id === id);
+
     item.addEventListener('dragstart', (e) => {
-      this.dragFrom = index;
+      const index = indexOf(slideId);
+      if (index === -1) return;
+      const { slideSelection } = this.store.get();
+      const ids = slideSelection.has(slideId)
+        ? new Set(this.store.selectedSlides().map((slide) => slide.id))
+        : new Set([slideId]);
+      this.drag = { ids, grabbed: slideId };
       e.dataTransfer?.setData('text/plain', String(index));
       if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
       // Chromium's default drag image for a row whose thumbnail is a
       // transform-scaled full-size slide surface ends up being a snapshot of
       // the whole window, so the entire UI appeared to follow the cursor in
       // the browser client. A small explicit drag image avoids the snapshot.
-      if (e.dataTransfer) e.dataTransfer.setDragImage(this.makeDragImage(index), 12, 10);
-      item.classList.add('dragging');
+      if (e.dataTransfer) e.dataTransfer.setDragImage(this.makeDragImage(index, ids.size), 12, 10);
+      for (const id of ids) this.rowBySlideId.get(id)?.classList.add('dragging');
     });
 
     item.addEventListener('dragend', () => {
-      this.dragFrom = null;
+      this.drag = null;
       this.clearDragImage();
-      // The row's own marks come off here rather than being left to the
+      // The rows' own marks come off here rather than being left to the
       // re-render: a drag that reordered nothing leaves every slide object
-      // identical, so `render` reuses this very node from the row cache and
-      // the dimming stayed on it for good. `dragend` fires however the drag
+      // identical, so `render` reuses these very nodes from the row cache and
+      // the dimming stayed on them for good. `dragend` fires however the drag
       // ended -- dropped, released over nothing, or cancelled with Escape.
       // The insertion marks belong to whichever row the pointer was last
-      // over, which is not necessarily this one when a drag is cancelled.
+      // over, which is not necessarily a dragged one when a drag is cancelled.
       for (const row of this.host.querySelectorAll('.rail-item')) {
         row.classList.remove('dragging', 'drop-before', 'drop-after');
       }
@@ -865,11 +895,11 @@ export class SlideRail {
     });
 
     item.addEventListener('dragover', (e) => {
-      if (this.dragFrom === null || this.dragFrom === index) return;
+      if (!this.drag || this.drag.ids.has(slideId)) return;
       e.preventDefault();
       if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-      // Which half of the row the pointer is in decides whether the slide
-      // lands before or after it.
+      // Which half of the row the pointer is in decides whether the slides
+      // land before or after it.
       const r = item.getBoundingClientRect();
       item.classList.toggle('drop-before', e.clientY < r.top + r.height / 2);
       item.classList.toggle('drop-after', e.clientY >= r.top + r.height / 2);
@@ -881,24 +911,24 @@ export class SlideRail {
 
     item.addEventListener('drop', (e) => {
       e.preventDefault();
-      const from = this.dragFrom;
+      const drag = this.drag;
       item.classList.remove('drop-before', 'drop-after');
-      if (from === null || from === index) return;
+      if (!drag || drag.ids.has(slideId)) return;
+      this.drag = null;
+      const index = indexOf(slideId);
+      if (index === -1) return;
 
       const r = item.getBoundingClientRect();
-      const after = e.clientY >= r.top + r.height / 2;
-      let to = after ? index + 1 : index;
-      // Removing the dragged slide first shifts every later index down by one.
-      if (from < to) to -= 1;
+      const insertAt = e.clientY >= r.top + r.height / 2 ? index + 1 : index;
+      const order = reorderSlides(this.store.get().deck.slides, drag.ids, insertAt);
+      if (!order) return;
 
-      this.dragFrom = null;
-      if (to === from) return;
-
+      const ids = order.map((slide) => slide.id);
       this.store.commit((deck) => {
-        const [moved] = deck.slides.splice(from, 1);
-        deck.slides.splice(to, 0, moved);
-      });
-      this.store.selectSlide(to);
+        const byId = new Map(deck.slides.map((slide) => [slide.id, slide]));
+        deck.slides = ids.map((id) => byId.get(id)!);
+      }, { label: drag.ids.size > 1 ? `Move ${drag.ids.size} slides` : 'Move slide' });
+      this.store.setSlideSelection(drag.ids, drag.grabbed);
     });
   }
 

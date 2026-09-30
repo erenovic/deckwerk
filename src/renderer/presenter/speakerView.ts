@@ -1,14 +1,16 @@
 import type { Deck } from '@shared/deck.js';
 import type { PresentationCommand, PresentationState } from '@shared/ipc.js';
+import { renderNotesMarkdown } from '@shared/notesMarkdown.js';
 import { resolveState } from '@shared/timeline.js';
 import { revealImagesWhenDecoded } from '../player/imageDecode.js';
 import { freezePreviewVideos, releasePreviewVideos } from '../player/previewPoster.js';
 import { applyStageScale, renderSlide, rewriteCssAssetUrls } from '../player/render.js';
 import { applyStaticSlideState } from '../player/staticState.js';
+import { makePanelResizable } from '../editor/panelResize.js';
 import { formatElapsed, formatWallClock, presentationLabel } from './model.js';
 
 /**
- * Speaker View: current and next slide, build position, presentation and slide
+ * Speaker View: current and next slide, speaker notes, build position, presentation and slide
  * timers, wall clock, and the presenter's controls.
  *
  * One component, two shells. The desktop opens it in its own Electron window
@@ -60,9 +62,23 @@ const MARKUP = `
         <div class="speaker-next preview"></div>
       </div>
       <section class="timers" aria-label="Presentation timing">
+        <div class="speaker-size speaker-timers-size" role="group" aria-label="Timer text size">
+          <button type="button" class="speaker-timers-smaller" aria-label="Smaller timers" title="Smaller timers">A−</button>
+          <button type="button" class="speaker-timers-larger" aria-label="Larger timers" title="Larger timers">A+</button>
+        </div>
         <div class="presenter-clock presentation-clock"><span>Presentation elapsed</span><strong class="speaker-presentation-timer">00:00</strong></div>
         <div class="presenter-clock slide-clock"><span>Current slide</span><strong class="speaker-slide-timer">00:00</strong></div>
         <div class="presenter-clock wall-clock"><span>Local time</span><strong class="speaker-wall-clock">--:--</strong></div>
+      </section>
+      <section class="notes-panel" aria-label="Speaker notes">
+        <div class="panel-heading">
+          <h2>Notes</h2>
+          <div class="speaker-size speaker-notes-size" role="group" aria-label="Notes text size">
+            <button type="button" class="speaker-notes-smaller" aria-label="Smaller notes text" title="Smaller notes text">A−</button>
+            <button type="button" class="speaker-notes-larger" aria-label="Larger notes text" title="Larger notes text">A+</button>
+          </div>
+        </div>
+        <div class="speaker-notes"></div>
       </section>
     </aside>
   </section>
@@ -74,6 +90,68 @@ const MARKUP = `
     <button class="speaker-end danger">End show</button>
   </footer>
 `;
+
+/** Notes text sizes, as multiples of the panel's default size. */
+export const NOTES_SCALES = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.15, 1.3, 1.5, 1.75, 2, 2.5] as const;
+/** Timer sizes, as multiples of their default size; the default is already large. */
+export const TIMER_SCALES = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.15, 1.3, 1.5] as const;
+const SIDEBAR_SIZE_KEY = 'deckwerk.presenter.sidebar';
+const NOTES_SIZE_KEY = 'deckwerk.presenter.notes';
+
+function readScale(key: string, scales: readonly number[]): number {
+  try {
+    const stored = Number(window.localStorage.getItem(key));
+    return scales.includes(stored) ? stored : 1;
+  } catch {
+    return 1;
+  }
+}
+
+function storeScale(key: string, scale: number): void {
+  try {
+    window.localStorage.setItem(key, String(scale));
+  } catch {
+    // Storage can be unavailable; the size still applies for this session.
+  }
+}
+
+/**
+ * An A-/A+ pair stepping `property` on `host` through `scales`. Sizes are the
+ * presenter's own preference, so they live in this viewer's storage rather
+ * than in the deck.
+ */
+function bindTextSize(
+  host: HTMLElement,
+  buttons: { smaller: HTMLButtonElement; larger: HTMLButtonElement },
+  scales: readonly number[],
+  config: { property: string; storageKey: string; noun: string },
+): void {
+  const { smaller, larger } = buttons;
+  let scale = readScale(config.storageKey, scales);
+  const apply = () => {
+    host.style.setProperty(config.property, String(scale));
+    const at = scales.indexOf(scale);
+    smaller.disabled = at <= 0;
+    larger.disabled = at >= scales.length - 1;
+    const percent = `${Math.round(scale * 100)}%`;
+    smaller.title = `Smaller ${config.noun} (${percent})`;
+    larger.title = `Larger ${config.noun} (${percent})`;
+  };
+  const step = (delta: number) => {
+    const next = scales[Math.min(Math.max(scales.indexOf(scale) + delta, 0), scales.length - 1)];
+    if (next === scale) return;
+    scale = next;
+    storeScale(config.storageKey, scale);
+    apply();
+  };
+  for (const button of [smaller, larger]) {
+    // Space and Enter advance the talk; a focused button would take them.
+    button.addEventListener('pointerdown', (event) => event.preventDefault());
+  }
+  smaller.addEventListener('click', () => step(-1));
+  larger.addEventListener('click', () => step(1));
+  apply();
+}
 
 export function createSpeakerView(options: SpeakerViewOptions): SpeakerView {
   const { host, resolveSrc, onCommand, now = () => Date.now() } = options;
@@ -93,7 +171,70 @@ export function createSpeakerView(options: SpeakerViewOptions): SpeakerView {
   const presentationTimer = pick('.speaker-presentation-timer');
   const slideTimer = pick('.speaker-slide-timer');
   const wallClock = pick('.speaker-wall-clock');
+  const notes = pick('.speaker-notes');
   const swap = pick<HTMLButtonElement>('.speaker-swap');
+  const layout = pick('.speaker-layout');
+  const sidebar = pick('.speaker-sidebar');
+  const notesPanel = pick('.notes-panel');
+
+  bindTextSize(host, {
+    smaller: pick<HTMLButtonElement>('.speaker-notes-smaller'),
+    larger: pick<HTMLButtonElement>('.speaker-notes-larger'),
+  }, NOTES_SCALES, { property: '--speaker-notes-scale', storageKey: 'deckwerk.presenter.notes-scale', noun: 'notes text' });
+  bindTextSize(host, {
+    smaller: pick<HTMLButtonElement>('.speaker-timers-smaller'),
+    larger: pick<HTMLButtonElement>('.speaker-timers-larger'),
+  }, TIMER_SCALES, { property: '--speaker-timers-scale', storageKey: 'deckwerk.presenter.timers-scale', noun: 'timers' });
+
+  // Drag the border between the current slide and the sidebar, and the one
+  // above the notes. Before the window is laid out there is nothing to bound
+  // the size by, so the limits wait for real dimensions.
+  const bounded = (size: number, reserve: number) => (size > 0 ? size - reserve : Number.POSITIVE_INFINITY);
+  const unbindSidebar = makePanelResizable(sidebar, {
+    storageKey: SIDEBAR_SIZE_KEY,
+    sizeTarget: host,
+    width: {
+      property: '--speaker-sidebar-width',
+      // Close to the proportions the view had before it was resizable.
+      initial: Math.round((window.innerWidth || 1470) * 0.3),
+      min: 280,
+      // Keep a usable current-slide preview, and its heading, beside it.
+      max: () => bounded(layout.clientWidth, 420),
+      edge: 'left',
+    },
+  });
+  const unbindNotes = makePanelResizable(notesPanel, {
+    storageKey: NOTES_SIZE_KEY,
+    sizeTarget: host,
+    height: {
+      property: '--speaker-notes-height',
+      initial: Math.round((window.innerHeight || 930) * 0.3),
+      min: 90,
+      // Leave the timers and a sliver of next-slide preview above it.
+      max: () => bounded(sidebar.clientHeight, pick('.timers').offsetHeight + 100),
+      edge: 'top',
+    },
+  });
+
+  // A border drag resizes the previews without a new slide: re-fit the stages
+  // already there instead of rebuilding them (and re-decoding their media).
+  let refitQueued = false;
+  const refit = () => {
+    if (refitQueued) return;
+    refitQueued = true;
+    requestAnimationFrame(() => {
+      refitQueued = false;
+      if (!deck) return;
+      for (const target of [currentHost, nextHost]) {
+        const stage = target.querySelector<HTMLElement>(':scope > .stage');
+        const bounds = target.getBoundingClientRect();
+        if (stage && bounds.width > 0) applyStageScale(stage, deck, { w: bounds.width, h: bounds.height });
+      }
+    });
+  };
+  const previewObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(refit);
+  previewObserver?.observe(currentHost);
+  previewObserver?.observe(nextHost);
 
   if (options.canSwapDisplays === false) {
     swap.remove();
@@ -147,6 +288,12 @@ export function createSpeakerView(options: SpeakerViewOptions): SpeakerView {
     while (nextSlide <= lastSlide && deck.slides[nextSlide]?.skipped) nextSlide += 1;
     preview(nextHost, nextSlide <= lastSlide ? nextSlide : -1);
     position.textContent = presentationLabel(state, deck.slides.length);
+    const note = deck.slides[state.cursor.slide]?.notes ?? '';
+    // Builds re-render the view on the same slide; keep the reader's scroll.
+    if (notes.dataset.source !== note) {
+      notes.dataset.source = note;
+      notes.innerHTML = renderNotesMarkdown(note);
+    }
   }
 
   function tick(): void {
@@ -187,6 +334,13 @@ export function createSpeakerView(options: SpeakerViewOptions): SpeakerView {
     tick,
     destroy() {
       clearInterval(clock);
+      previewObserver?.disconnect();
+      unbindSidebar();
+      unbindNotes();
+      host.style.removeProperty('--speaker-notes-scale');
+      host.style.removeProperty('--speaker-timers-scale');
+      host.style.removeProperty('--speaker-sidebar-width');
+      host.style.removeProperty('--speaker-notes-height');
       theme?.remove();
       theme = null;
       host.replaceChildren();

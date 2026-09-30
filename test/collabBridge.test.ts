@@ -70,6 +70,16 @@ describe('collaboration history attribution', () => {
     ]);
   });
 
+  it('sends an edit made without history but keeps it off the undo stack', () => {
+    const { bridge, deck } = harness();
+    const send = vi.spyOn(bridge as unknown as { send(message: unknown): void }, 'send');
+    const remembered = structuredClone(deck);
+    remembered.recentColors = ['#ff8800'];
+    bridge.localEdit(deck, remembered, 'Remember color', undefined, false);
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ kind: 'txn', label: 'Remember color' }));
+    expect(bridge.canUndo()).toBe(false);
+  });
+
   it('preserves a local user label on acknowledgement and marks peer edits remote', () => {
     const { bridge, deck, handle, replacements } = harness();
     const local = structuredClone(deck);

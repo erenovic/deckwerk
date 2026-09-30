@@ -50,10 +50,15 @@ export class Cdp {
     resolve: (value: any) => void;
     reject: (error: Error) => void;
   }>();
+  private eventListeners = new Set<(method: string, params: any) => void>();
 
   private constructor(private socket: WebSocket) {
     socket.on('message', (raw) => {
       const message = JSON.parse(String(raw));
+      if (typeof message.method === 'string' && typeof message.id !== 'number') {
+        for (const listener of this.eventListeners) listener(message.method, message.params);
+        return;
+      }
       if (typeof message.id !== 'number') return;
       const pending = this.pending.get(message.id);
       if (!pending) return;
@@ -111,6 +116,27 @@ export class Cdp {
         },
       });
       this.socket.send(JSON.stringify({ id, method, params }));
+    });
+  }
+
+  /**
+   * The next DevTools event named `method` (its domain must be enabled, or be
+   * one like `Input.dragIntercepted` that a command switches on). Subscribe
+   * before sending whatever triggers it: an event is not buffered.
+   */
+  waitForEvent(method: string, timeoutMs = 5_000): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const listener = (name: string, params: any) => {
+        if (name !== method) return;
+        clearTimeout(timer);
+        this.eventListeners.delete(listener);
+        resolve(params);
+      };
+      const timer = setTimeout(() => {
+        this.eventListeners.delete(listener);
+        reject(new Error(`DevTools event ${method} did not arrive in ${timeoutMs}ms`));
+      }, timeoutMs);
+      this.eventListeners.add(listener);
     });
   }
 

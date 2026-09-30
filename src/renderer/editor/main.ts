@@ -23,6 +23,8 @@ import { AgentPanel } from './agentPanel.js';
 import { createDeckWerkButton } from './aboutDialog.js';
 import { trackPreviewFrameRecovery } from '../player/previewFrameRecovery.js';
 import { EditorCanvas } from './canvas.js';
+import { FindBar } from './findBar.js';
+import { connectRecentColors } from './colorPicker.js';
 import { CssEditor } from './cssEditor.js';
 import { Inspector } from './inspector.js';
 import { HistoryPanel } from './historyPanel.js';
@@ -77,6 +79,7 @@ const el = <T extends HTMLElement>(id: string): T => {
 if (navigator.userAgent.includes('Macintosh')) document.body.classList.add('mac-titlebar');
 
 const store = new EditorStore(emptyDeck());
+connectRecentColors(store);
 // Rail and Morph thumbnails take their poster frames from the main process, so
 // this window never opens a video pipeline for a preview (see posterCache.ts).
 installWindowApiPosterProvider();
@@ -129,7 +132,7 @@ const canvas = new EditorCanvas(el('canvas'), store);
 // are Chromium's to reclaim -- closing Present used to leave canvas, rail and
 // Morph previews black until something happened to touch them.
 trackPreviewFrameRecovery(el('canvas'), document.body);
-new SpeakerNotesDrawer(el('canvas'), store, {
+const notesDrawer = new SpeakerNotesDrawer(el('canvas'), store, {
   // Flush the note being typed so the file that opens already has it.
   openFile: async () => {
     await save();
@@ -138,6 +141,7 @@ new SpeakerNotesDrawer(el('canvas'), store, {
   onInsetChange: (px) => canvas.setBottomInset(px),
   onStatus: setStatusMessage,
 });
+const findBar = new FindBar(el('canvas'), store, { notes: notesDrawer });
 const inspector = new Inspector(el('inspector'), store);
 new TimelinePanel(el('timeline'), store);
 new HistoryPanel(el('history'), store);
@@ -1079,6 +1083,7 @@ const shellDeps: ShellDeps = {
   currentThemeCss: () => cssEditor.getValue(),
   openTrim,
   openRaster,
+  openFind: () => findBar.show(),
   undo: () => {
     if (agentSessionReady && agentSessionBridge) agentSessionBridge.undo(store.get().deck);
     else store.undo();

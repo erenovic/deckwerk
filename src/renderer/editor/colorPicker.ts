@@ -1,3 +1,5 @@
+import { withRecentColor } from '../../shared/recentColors.js';
+import type { EditorStore } from './store.js';
 import { closePopover, openAnchoredPopover } from './ui.js';
 
 interface RgbaColor {
@@ -22,6 +24,34 @@ export interface ColorFieldOptions {
   clear?: { kind: 'theme' | 'css' | 'none'; label: string };
   /** The selected targets currently have different authored colours. */
   mixed?: boolean;
+}
+
+/**
+ * Where the pickers read and write the deck's recently used colours. The
+ * editor installs one backed by its store; without it (tests, other hosts)
+ * the Recent row simply does not appear.
+ */
+export interface RecentColorSource {
+  list(): readonly string[];
+  set(colors: string[]): void;
+}
+
+let recentColorSource: RecentColorSource | null = null;
+
+export function setRecentColorSource(source: RecentColorSource | null): void {
+  recentColorSource = source;
+}
+
+/** Back the pickers' Recent row with the store's deck. */
+export function connectRecentColors(store: EditorStore): void {
+  setRecentColorSource({
+    list: () => store.get().deck.recentColors,
+    // Saved and synced with the deck, but not an undo step: undoing a
+    // recolour should not also forget the colour.
+    set: (colors) => store.commit((deck) => {
+      deck.recentColors = colors;
+    }, { history: false, label: 'Remember color' }),
+  });
 }
 
 const clamp = (value: number, min = 0, max = 1): number =>
@@ -224,7 +254,7 @@ export function colorField(
     }
 
     const swatchButtons: HTMLButtonElement[] = [];
-    const addSwatch = (host: HTMLElement, cssColor: string, labelPrefix: string) => {
+    const addSwatch = (host: HTMLElement, cssColor: string, labelPrefix: string, keepAlpha = false) => {
       const parsed = parseCssColor(cssColor)!;
       const swatch = document.createElement('button');
       swatch.type = 'button';
@@ -233,7 +263,7 @@ export function colorField(
       swatch.title = cssColor;
       previewStyle(swatch, parsed);
       swatch.addEventListener('click', () => {
-        current = { ...parsed, a: current.a };
+        current = { ...parsed, a: keepAlpha ? parsed.a : current.a };
         hsv = rgbToHsv(current);
         currentIsTheme = false;
         paint();
@@ -255,6 +285,24 @@ export function colorField(
       empty.className = 'color-picker-palette-empty';
       empty.textContent = 'No theme palette';
       palette.insertBefore(empty, neutrals);
+    }
+
+    // What the deck had used before this picker opened. A drag across the
+    // plane commits many times; each commit replaces the one before at the
+    // front instead of filling the list with every colour passed through.
+    const recentAtOpen = recentColorSource
+      ? recentColorSource.list().filter((color) => parseCssColor(color))
+      : [];
+    const recentSection: HTMLElement[] = [];
+    if (recentAtOpen.length > 0) {
+      const recentTitle = document.createElement('div');
+      recentTitle.className = 'color-picker-section-title';
+      recentTitle.textContent = 'Recent colors';
+      const recent = document.createElement('div');
+      recent.className = 'color-picker-palette color-picker-recent';
+      // A recent colour is exactly what was picked, opacity included.
+      for (const color of recentAtOpen) addSwatch(recent, color, 'Recent color', true);
+      recentSection.push(recentTitle, recent);
     }
 
     const plane = document.createElement('div');
@@ -315,7 +363,9 @@ export function colorField(
 
     const commit = () => {
       previewStyle(preview, current);
-      onChange(colorToCss(current));
+      const css = colorToCss(current);
+      onChange(css);
+      recentColorSource?.set(withRecentColor(recentAtOpen, css));
     };
     const paint = () => {
       current = hsvToRgb(hsv, current.a);
@@ -411,7 +461,7 @@ export function colorField(
       sourceNote.append(sourceBadge, sourceText);
       popover.append(sourceNote);
     }
-    popover.append(paletteTitle, palette, plane, hueLabel, opacityLabel, values, clearButton);
+    popover.append(paletteTitle, palette, ...recentSection, plane, hueLabel, opacityLabel, values, clearButton);
     paint();
     openAnchoredPopover(trigger, popover, { focus: false });
   });

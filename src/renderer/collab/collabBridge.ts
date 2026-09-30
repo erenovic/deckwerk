@@ -169,11 +169,11 @@ export class CollabBridge {
   }
 
   /** Wire this to store.onLocalEdit. */
-  localEdit = (prev: Deck, next: Deck, label: string, coalesceKey?: string): void => {
+  localEdit = (prev: Deck, next: Deck, label: string, coalesceKey?: string, undoable = true): void => {
     const forward = diffDecks(prev, next);
     if (forward.length === 0) return;
     const inverse = diffDecks(next, prev);
-    if (!this.replayingHistory) {
+    if (!this.replayingHistory && undoable) {
       const top = this.undoStack[this.undoStack.length - 1];
       if (coalesceKey && top?.coalesceKey === coalesceKey) {
         // Op lists compose by concatenation: forward replays oldest→newest,

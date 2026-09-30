@@ -66,6 +66,15 @@ describe('diffDecks round-trips', () => {
     expectRoundTrip(prev, next);
   });
 
+  it('diffs and round-trips the recently used colors', () => {
+    const prev = deckWith(slide('s1'));
+    const next = structuredClone(prev);
+    next.recentColors = ['#ff8800', 'rgba(0, 0, 0, 0.5)'];
+    const ops = diffDecks(prev, next);
+    expect(ops).toEqual([{ op: 'updateDeck', recentColors: ['#ff8800', 'rgba(0, 0, 0, 0.5)'] }]);
+    expectRoundTrip(prev, next);
+  });
+
   it('round-trips layout master changes used by persisted and collaborative history', () => {
     const prev = deckWith(slide('s1'));
     const next = structuredClone(prev);
