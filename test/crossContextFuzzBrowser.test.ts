@@ -138,7 +138,7 @@ function isKnownStaleSlideIdentity(error: string): boolean {
 type OpName =
   | 'click' | 'shift-click' | 'double-click text' | 'double-click image then text'
   | 'type nonce' | 'bold mid-word' | 'escape' | 'click empty' | 'marquee'
-  | 'rail hop' | 'rail drag' | 'find next' | 'undo' | 'redo' | 'undo round-trip' | 'delete selection'
+  | 'rail hop' | 'rail drag' | 'find next' | 'shift drag' | 'undo' | 'redo' | 'undo round-trip' | 'delete selection'
   | 'cmd+a';
 
 interface Violation { seed: number; step: number; op: OpName; oracle: string; detail: string }
@@ -386,6 +386,7 @@ function chooseOp(next: () => number, pre: CrossState): OpName {
   add('rail hop', 2);
   if (pre.editing === null) add('rail drag', 1);
   add('find next', 1);
+  if (pre.editing === null && targets.length > 0) add('shift drag', 2);
   add('undo', 2);
   add('redo', 1);
   add('undo round-trip', 1);
@@ -501,7 +502,6 @@ async function performOp(
       // Cmd/Ctrl+F from wherever focus is (mid-edit included), a word that is
       // on the slide, Enter, Escape. The query must never reach the slide's
       // text, the bar must land on a highlighted match, and Escape must close.
-      const texts = await session.allTexts();
       // innerText keeps the line breaks between paragraphs that allTexts
       // collapses, so every candidate is a word a person could see and type.
       const shown = await session.cdp.evaluate<string>(`[...document.querySelectorAll('.slide-layer .text-content')]
@@ -511,6 +511,9 @@ async function performOp(
       const word = pick(next, words);
       await session.chord('f', 'KeyF', 70, MOD);
       await wait(80);
+      // Opening find ends a live text edit, which commits it; the texts are
+      // read after that so the oracle sees only what the query typing did.
+      const texts = await session.allTexts();
       await session.type(word);
       await session.key('Enter', 13);
       await wait(200);
@@ -531,6 +534,41 @@ async function performOp(
       await session.key('Escape', 27);
       const closed = await session.cdp.evaluate<boolean>(`Boolean(document.querySelector('.find-bar')?.hidden)`);
       if (!closed) flag('routing', 'Escape did not close the find bar');
+      return 'same';
+    }
+    case 'shift drag': {
+      // A real Shift-held drag of an object along a wobbly path. Whatever
+      // moved must have moved as one rigid group along an exact horizontal,
+      // vertical or 45° line, however near a snap guide it passed.
+      const positions = () => session.cdp.evaluate<Record<string, { x: number; y: number }>>(`(() => {
+        const out = {};
+        for (const el of window.store.slide.elements) out[el.id] = { x: el.x, y: el.y };
+        return out;
+      })()`);
+      const before = await positions();
+      const box = await session.boxOf(elementSelector(pick(next, targets)));
+      const start = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+      const reach = 40 + next() * 120;
+      const angle = next() * Math.PI * 2;
+      const end = { x: start.x + Math.cos(angle) * reach, y: start.y + Math.sin(angle) * reach };
+      await session.dragPath([
+        start,
+        { x: start.x + (end.x - start.x) * 0.4 + 6, y: start.y + (end.y - start.y) * 0.4 - 5 },
+        { x: start.x + (end.x - start.x) * 0.8 - 4, y: start.y + (end.y - start.y) * 0.8 + 7 },
+        end,
+      ], SHIFT);
+      const after = await positions();
+      const moves = Object.keys(after)
+        .filter((id) => before[id])
+        .map((id) => ({ id, dx: after[id].x - before[id].x, dy: after[id].y - before[id].y }))
+        .filter((move) => move.dx !== 0 || move.dy !== 0);
+      for (const move of moves) {
+        const exact = move.dx === 0 || move.dy === 0 || Math.abs(move.dx) === Math.abs(move.dy);
+        if (!exact) flag('census', `Shift-drag moved ${move.id} by (${move.dx}, ${move.dy}), off every 45° line`);
+        if (move.dx !== moves[0].dx || move.dy !== moves[0].dy) {
+          flag('census', `Shift-drag moved ${move.id} by (${move.dx}, ${move.dy}) but ${moves[0].id} by (${moves[0].dx}, ${moves[0].dy})`);
+        }
+      }
       return 'same';
     }
     case 'undo':

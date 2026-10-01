@@ -229,8 +229,8 @@ export interface CrossSession {
    * press, so it selects exactly as a person's would.
    */
   dragRail(from: number, onto: number, half: 'before' | 'after'): Promise<void>;
-  /** A real primary-button marquee drag along viewport points. */
-  dragPath(points: Array<{ x: number; y: number }>): Promise<void>;
+  /** A real primary-button drag along viewport points, optionally with modifiers held. */
+  dragPath(points: Array<{ x: number; y: number }>, modifiers?: number): Promise<void>;
   /** Viewport box of a selector. */
   boxOf(selector: string): Promise<{ left: number; top: number; width: number; height: number }>;
   key(key: string, code: number): Promise<void>;
@@ -404,23 +404,23 @@ function buildSession(cdp: Cdp): CrossSession {
       }
       await wait(150);
     },
-    async dragPath(points) {
+    async dragPath(points, modifiers = 0) {
       const start = points[0];
       const end = points[points.length - 1];
       await cdp.call('Input.dispatchMouseEvent', {
-        type: 'mouseMoved', x: start.x, y: start.y, button: 'none', buttons: 0,
+        type: 'mouseMoved', x: start.x, y: start.y, button: 'none', buttons: 0, modifiers,
       });
       await cdp.call('Input.dispatchMouseEvent', {
-        type: 'mousePressed', x: start.x, y: start.y, button: 'left', buttons: 1, clickCount: 1,
+        type: 'mousePressed', x: start.x, y: start.y, button: 'left', buttons: 1, clickCount: 1, modifiers,
       });
       for (const point of points.slice(1)) {
         await cdp.call('Input.dispatchMouseEvent', {
-          type: 'mouseMoved', x: point.x, y: point.y, button: 'left', buttons: 1,
+          type: 'mouseMoved', x: point.x, y: point.y, button: 'left', buttons: 1, modifiers,
         });
         await wait(30);
       }
       await cdp.call('Input.dispatchMouseEvent', {
-        type: 'mouseReleased', x: end.x, y: end.y, button: 'left', buttons: 0, clickCount: 1,
+        type: 'mouseReleased', x: end.x, y: end.y, button: 'left', buttons: 0, clickCount: 1, modifiers,
       });
       await wait(80);
     },

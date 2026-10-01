@@ -75,6 +75,8 @@ import { isWebBridgeAction } from '@shared/webBridge.js';
 import { reportSelectionViolations } from './selectionInvariants.js';
 import {
   HANDLES,
+  constrainMove,
+  constrainSnap,
   type SizeGuide,
   type SnapLine,
   type SpacingGuide,
@@ -754,6 +756,10 @@ export class EditorCanvas {
     /** The click was the second of a double-click: take the word under it. */
     selectWord: boolean;
   } | null = null;
+  /** A Shift-press on a selected object: dropped from the selection only if no drag follows. */
+  private pendingShiftDeselect: string | null = null;
+  /** The latest pointer sample of a move drag, replayed when Shift changes mid-drag. */
+  private lastMovePointer: PointerEvent | null = null;
 
   /**
    * Id of the element whose crop is being edited, if any.
@@ -1934,6 +1940,7 @@ export class EditorCanvas {
     // modifier onto the canvas host to let CSS swap the handle cursor while it
     // is hovered.
     window.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Shift') this.replayMoveWithShift(true);
       if (isCommandModifierKey(ev.key) || commandModifier(ev)) this.setRotationModifier(true);
       if (ev.key === 'Escape' && this.liveWebIds.size > 0 && !this.editingId) this.endWebLive();
     });
@@ -1945,9 +1952,29 @@ export class EditorCanvas {
       if ([...frames].some((frame) => frame.contentWindow === ev.source)) this.endWebLive();
     });
     window.addEventListener('keyup', (ev) => {
+      if (ev.key === 'Shift') this.replayMoveWithShift(false);
       if (isCommandModifierKey(ev.key) || !commandModifier(ev)) this.setRotationModifier(false);
     });
     window.addEventListener('blur', () => this.setRotationModifier(false));
+  }
+
+  /**
+   * Pressing or releasing Shift mid-drag re-applies the move at the pointer's
+   * last position, so the object jumps onto (or off) its line at once instead
+   * of waiting for the mouse to move again.
+   */
+  private replayMoveWithShift(shiftKey: boolean): void {
+    const last = this.lastMovePointer;
+    if (this.drag.kind !== 'move' || !this.dragStarted || !last || last.shiftKey === shiftKey) return;
+    this.onPointerMove(new PointerEvent('pointermove', {
+      pointerId: last.pointerId,
+      clientX: last.clientX,
+      clientY: last.clientY,
+      shiftKey,
+      altKey: last.altKey,
+      ctrlKey: last.ctrlKey,
+      metaKey: last.metaKey,
+    }));
   }
 
   private setRotationModifier(active: boolean): void {
@@ -2194,8 +2221,10 @@ export class EditorCanvas {
       if (!selection.has(hit.id)) {
         this.store.select([hit.id], ev.shiftKey);
       } else if (ev.shiftKey) {
-        this.store.select([hit.id], true);
-        return;
+        // Shift on a selected object either drops it from the selection (a
+        // click) or starts a constrained drag of the selection (a drag).
+        // Which one is only known at pointer-up.
+        this.pendingShiftDeselect = hit.id;
       }
       const origin = new Map<string, MoveOrigin>();
       for (const el of this.store.selectedElements()) {
@@ -2265,12 +2294,16 @@ export class EditorCanvas {
     switch (this.drag.kind) {
       case 'move': {
         const drag = this.drag;
+        this.lastMovePointer = ev;
         let dx = point.x - drag.startCanvas.x;
         let dy = point.y - drag.startCanvas.y;
-        // Shift constrains to the dominant axis, the usual straight-line drag.
-        if (ev.shiftKey) {
-          if (Math.abs(dx) > Math.abs(dy)) dy = 0;
-          else dx = 0;
+        // Shift locks the move to the nearest horizontal, vertical or 45°
+        // line. Whole pixels first, so a diagonal stays exactly diagonal
+        // after positions are rounded.
+        const constraint = ev.shiftKey ? constrainMove(dx, dy) : null;
+        if (constraint) {
+          dx = Math.round(constraint.dx);
+          dy = constraint.axis === 'diagonal' ? Math.sign(constraint.dy) * Math.abs(dx) : Math.round(constraint.dy);
         }
 
         const ids = new Set(drag.origin.keys());
@@ -2290,10 +2323,11 @@ export class EditorCanvas {
           return rot ? rotatedBounds({ ...origin, rot } as SlideElement) : origin;
         }));
         const moved = { ...bounds, x: bounds.x + dx, y: bounds.y + dy };
-        const snapped = commandModifier(ev)
+        const free = commandModifier(ev)
           // The gesture modifier suspends snapping for fine placement.
           ? { rect: moved, guides: [], spacing: [], sizes: [] }
           : snapMove(moved, deck.canvas, others, threshold);
+        const snapped = constraint ? constrainSnap(moved, free, constraint.axis) : free;
         this.guides = snapped.guides;
         this.spacing = snapped.spacing;
         this.sizeMatches = snapped.sizes;
@@ -2645,6 +2679,7 @@ export class EditorCanvas {
       return;
     }
     const textEdit = !this.dragStarted ? this.pendingTextEdit : null;
+    const shiftDeselect = !this.dragStarted ? this.pendingShiftDeselect : null;
     if (this.drag.kind === 'marquee' && this.marquee) {
       const slide = this.store.slide;
       if (slide) {
@@ -2658,6 +2693,7 @@ export class EditorCanvas {
     }
     this.host.releasePointerCapture?.(ev.pointerId);
     this.endDrag();
+    if (shiftDeselect) this.store.select([shiftDeselect], true);
     if (textEdit) this.beginTextEdit(textEdit.elementId, textEdit, textEdit.selectWord);
   }
 
@@ -2672,6 +2708,8 @@ export class EditorCanvas {
     this.sizeMatches = [];
     this.marquee = null;
     this.pendingTextEdit = null;
+    this.pendingShiftDeselect = null;
+    this.lastMovePointer = null;
 
     // Deliberately *not* a full render. Redrawing the slide layer here would
     // replace the node the pointer went down on, and a browser cannot

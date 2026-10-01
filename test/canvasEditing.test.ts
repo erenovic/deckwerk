@@ -3576,3 +3576,97 @@ describe('pointer-ups on chrome laid over the canvas', () => {
     expect(store.isTransactionActive()).toBe(false);
   });
 });
+
+describe('Shift-constrained moves', () => {
+  /** A slide at scale 1, so client pixels are slide pixels. */
+  function atScaleOne() {
+    const env = setup();
+    const stage = env.host.querySelector<HTMLElement>('.stage')!;
+    stage.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1920, height: 1080 }) as DOMRect;
+    return env;
+  }
+
+  const at = (x: number, y: number, shiftKey = false) => ({
+    clientX: x, clientY: y, bubbles: true, pointerId: 1, button: 0, shiftKey,
+  });
+
+  const text = (store: EditorStore) => store.slide!.elements.find((el) => el.id === 'text-1')!;
+
+  // BUG: the axis lock ran before snapping, so a guide near the locked axis
+  // pulled a "horizontal" drag off its line.
+  it('keeps a horizontal Shift-drag exactly level beside a nearby guide', () => {
+    const { store, host } = atScaleOne();
+    // A box far to the right whose top sits 4px below the text's top: inside
+    // the snap threshold, so an unconstrained move would align to it.
+    store.commit((deck) => {
+      deck.slides[0].elements.push({
+        ...structuredClone(deck.slides[0].elements[0]), id: 'guide', x: 1500, y: 104, w: 200, h: 80,
+      });
+    }, { history: false });
+
+    host.dispatchEvent(new PointerEvent('pointerdown', at(200, 150)));
+    host.dispatchEvent(new PointerEvent('pointermove', at(340, 175, true)));
+    host.dispatchEvent(new PointerEvent('pointerup', at(340, 175, true)));
+
+    expect({ x: text(store).x, y: text(store).y }).toEqual({ x: 240, y: 100 });
+  });
+
+  it('moves along an exact 45° diagonal when the drag is nearer the diagonal', () => {
+    const { store, host } = atScaleOne();
+    host.dispatchEvent(new PointerEvent('pointerdown', at(200, 150)));
+    host.dispatchEvent(new PointerEvent('pointermove', at(340, 280, true)));
+    host.dispatchEvent(new PointerEvent('pointerup', at(340, 280, true)));
+
+    const { x, y } = text(store);
+    expect(x - 100).toBe(135);
+    expect(y - 100).toBe(135);
+  });
+
+  it('moves vertically only when the drag is nearer vertical', () => {
+    const { store, host } = atScaleOne();
+    host.dispatchEvent(new PointerEvent('pointerdown', at(200, 150)));
+    host.dispatchEvent(new PointerEvent('pointermove', at(230, 420, true)));
+    host.dispatchEvent(new PointerEvent('pointerup', at(230, 420, true)));
+    expect(text(store).x).toBe(100);
+  });
+
+  // BUG: Shift-pressing an object that was already selected dropped it from
+  // the selection and returned, so the constrained drag never started.
+  it('Shift-drags an object that is already selected, and keeps it selected', () => {
+    const { store, host } = atScaleOne();
+    store.select(['text-1']);
+    host.dispatchEvent(new PointerEvent('pointerdown', at(200, 150, true)));
+    host.dispatchEvent(new PointerEvent('pointermove', at(340, 160, true)));
+    host.dispatchEvent(new PointerEvent('pointerup', at(340, 160, true)));
+
+    expect({ x: text(store).x, y: text(store).y }).toEqual({ x: 240, y: 100 });
+    expect([...store.get().selection]).toEqual(['text-1']);
+  });
+
+  it('still drops an object from the selection on a Shift-click without a drag', () => {
+    const { store, host } = atScaleOne();
+    store.select(['text-1', 'video-1']);
+    host.dispatchEvent(new PointerEvent('pointerdown', at(200, 150, true)));
+    host.dispatchEvent(new PointerEvent('pointerup', at(200, 150, true)));
+    expect([...store.get().selection]).toEqual(['video-1']);
+    expect({ x: text(store).x, y: text(store).y }).toEqual({ x: 100, y: 100 });
+  });
+
+  it('applies and releases the lock the moment Shift changes, without waiting for the mouse', () => {
+    const { store, host } = atScaleOne();
+    host.dispatchEvent(new PointerEvent('pointerdown', at(200, 150)));
+    host.dispatchEvent(new PointerEvent('pointermove', at(340, 190)));
+    expect({ x: text(store).x, y: text(store).y }).toEqual({ x: 240, y: 140 });
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', shiftKey: true }));
+    expect({ x: text(store).x, y: text(store).y }).toEqual({ x: 240, y: 100 });
+
+    window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift' }));
+    expect({ x: text(store).x, y: text(store).y }).toEqual({ x: 240, y: 140 });
+    host.dispatchEvent(new PointerEvent('pointerup', at(340, 190)));
+
+    // One gesture, one undo step.
+    store.undo();
+    expect({ x: text(store).x, y: text(store).y }).toEqual({ x: 100, y: 100 });
+  });
+});

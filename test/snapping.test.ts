@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   HANDLES,
+  constrainMove,
+  constrainSnap,
   sizeGuides,
   snapMove,
   snapPoint,
@@ -340,5 +342,59 @@ describe('snapPoint', () => {
     const out = snapPoint({ x: 1234, y: 777 }, CANVAS, [], 6);
     expect(out.point).toEqual({ x: 1234, y: 777 });
     expect(out.guides).toHaveLength(0);
+  });
+});
+
+describe('Shift-constrained moves', () => {
+  it('locks to exactly horizontal or vertical, whichever is nearer', () => {
+    expect(constrainMove(140, 30)).toEqual({ dx: 140, dy: 0, axis: 'horizontal' });
+    expect(constrainMove(-140, 30)).toEqual({ dx: -140, dy: 0, axis: 'horizontal' });
+    expect(constrainMove(20, -200)).toEqual({ dx: 0, dy: -200, axis: 'vertical' });
+    expect(constrainMove(-20, 200)).toEqual({ dx: 0, dy: 200, axis: 'vertical' });
+  });
+
+  it('locks to a true 45° diagonal in all four quadrants', () => {
+    for (const [sx, sy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+      const { dx, dy, axis } = constrainMove(140 * sx, 120 * sy);
+      expect(axis).toBe('diagonal');
+      expect(Math.abs(dx)).toBeCloseTo(130);
+      expect(Math.abs(dy)).toBeCloseTo(130);
+      expect(Math.sign(dx)).toBe(sx);
+      expect(Math.sign(dy)).toBe(sy);
+    }
+  });
+
+  it('switches direction at 22.5° either side of each axis', () => {
+    const at = (degrees: number) => {
+      const r = (degrees * Math.PI) / 180;
+      return constrainMove(Math.cos(r) * 100, Math.sin(r) * 100).axis;
+    };
+    expect(at(22)).toBe('horizontal');
+    expect(at(23)).toBe('diagonal');
+    expect(at(67)).toBe('diagonal');
+    expect(at(68)).toBe('vertical');
+  });
+
+  it('treats no movement as no movement', () => {
+    expect(constrainMove(0, 0)).toMatchObject({ dx: 0, dy: 0 });
+  });
+
+  it('snaps a constrained move only along its free axis, and a diagonal not at all', () => {
+    const moved = { x: 400, y: 100, w: 200, h: 100 };
+    const snapped = {
+      rect: { x: 404, y: 96, w: 200, h: 100 },
+      guides: [{ axis: 'x' as const, at: 404 }, { axis: 'y' as const, at: 96 }],
+      spacing: [],
+      sizes: [],
+    };
+    expect(constrainSnap(moved, snapped, 'horizontal')).toEqual({
+      rect: { x: 404, y: 100, w: 200, h: 100 }, guides: [{ axis: 'x', at: 404 }], spacing: [], sizes: [],
+    });
+    expect(constrainSnap(moved, snapped, 'vertical')).toEqual({
+      rect: { x: 400, y: 96, w: 200, h: 100 }, guides: [{ axis: 'y', at: 96 }], spacing: [], sizes: [],
+    });
+    expect(constrainSnap(moved, snapped, 'diagonal')).toEqual({
+      rect: moved, guides: [], spacing: [], sizes: [],
+    });
   });
 });

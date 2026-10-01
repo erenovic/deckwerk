@@ -463,3 +463,41 @@ export function snapPoint(
   }
   return { point: out, guides };
 }
+
+/** The direction a Shift-constrained move is locked to. */
+export type MoveAxis = 'horizontal' | 'vertical' | 'diagonal';
+
+/**
+ * Shift-drag: lock a move to the nearest of the eight compass directions, as
+ * design tools do. Horizontal and vertical keep one component exactly; a
+ * diagonal is the projection onto the 45° line, so both components have the
+ * same magnitude and the object travels a true diagonal.
+ */
+export function constrainMove(dx: number, dy: number): { dx: number; dy: number; axis: MoveAxis } {
+  if (dx === 0 && dy === 0) return { dx: 0, dy: 0, axis: 'horizontal' };
+  // Nearest multiple of 45°, from 0 (east) round to 7.
+  const octant = ((Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) % 8) + 8) % 8;
+  if (octant === 0 || octant === 4) return { dx, dy: 0, axis: 'horizontal' };
+  if (octant === 2 || octant === 6) return { dx: 0, dy, axis: 'vertical' };
+  // Octants 1 and 5 run along y = x, 3 and 7 along y = -x.
+  const sign = octant === 1 || octant === 5 ? 1 : -1;
+  const along = (dx + sign * dy) / 2;
+  return { dx: along, dy: sign * along, axis: 'diagonal' };
+}
+
+/**
+ * Keep a snap from bending a constrained move: a horizontal or vertical drag
+ * snaps only along its free axis (and draws only that axis's guides), and a
+ * diagonal does not snap at all, since moving either coordinate to a guide
+ * would take the object off its line.
+ */
+export function constrainSnap(moved: Rect, snapped: SnapResult, axis: MoveAxis): SnapResult {
+  if (axis === 'diagonal') return { rect: moved, guides: [], spacing: [], sizes: [] };
+  const free = axis === 'horizontal' ? 'x' : 'y';
+  return {
+    rect: free === 'x' ? { ...moved, x: snapped.rect.x } : { ...moved, y: snapped.rect.y },
+    guides: snapped.guides.filter((guide) => guide.axis === free),
+    spacing: snapped.spacing.filter((bar) => bar.axis === free),
+    sizes: [],
+  };
+}
