@@ -138,7 +138,7 @@ function isKnownStaleSlideIdentity(error: string): boolean {
 type OpName =
   | 'click' | 'shift-click' | 'double-click text' | 'double-click image then text'
   | 'type nonce' | 'bold mid-word' | 'escape' | 'click empty' | 'marquee'
-  | 'rail hop' | 'rail drag' | 'find next' | 'undo' | 'redo' | 'undo round-trip' | 'delete selection'
+  | 'rail hop' | 'rail drag' | 'find next' | 'page numbers' | 'undo' | 'redo' | 'undo round-trip' | 'delete selection'
   | 'cmd+a';
 
 interface Violation { seed: number; step: number; op: OpName; oracle: string; detail: string }
@@ -386,6 +386,7 @@ function chooseOp(next: () => number, pre: CrossState): OpName {
   add('rail hop', 2);
   if (pre.editing === null) add('rail drag', 1);
   add('find next', 1);
+  if (pre.editing === null) add('page numbers', 1);
   add('undo', 2);
   add('redo', 1);
   add('undo round-trip', 1);
@@ -501,7 +502,6 @@ async function performOp(
       // Cmd/Ctrl+F from wherever focus is (mid-edit included), a word that is
       // on the slide, Enter, Escape. The query must never reach the slide's
       // text, the bar must land on a highlighted match, and Escape must close.
-      const texts = await session.allTexts();
       // innerText keeps the line breaks between paragraphs that allTexts
       // collapses, so every candidate is a word a person could see and type.
       const shown = await session.cdp.evaluate<string>(`[...document.querySelectorAll('.slide-layer .text-content')]
@@ -511,6 +511,9 @@ async function performOp(
       const word = pick(next, words);
       await session.chord('f', 'KeyF', 70, MOD);
       await wait(80);
+      // Opening find ends a live text edit, which commits it; the texts are
+      // read after that so the oracle sees only what the query typing did.
+      const texts = await session.allTexts();
       await session.type(word);
       await session.key('Enter', 13);
       await wait(200);
@@ -531,6 +534,29 @@ async function performOp(
       await session.key('Escape', 27);
       const closed = await session.cdp.evaluate<boolean>(`Boolean(document.querySelector('.find-bar')?.hidden)`);
       if (!closed) flag('routing', 'Escape did not close the find bar');
+      return 'same';
+    }
+    case 'page numbers': {
+      // The Design tab's real checkbox, then straight back to Props: the
+      // canvas must show the current slide's number exactly while numbering
+      // is on, outside the slide layer the render invariant compares.
+      await session.cdp.click('#side-tabs button[data-panel="themePanel"]', 'Design tab');
+      await wait(120);
+      await session.cdp.click('.page-numbers-section .field-check input', 'Show page numbers');
+      await wait(120);
+      await session.cdp.click('#side-tabs button[data-panel="inspector"]', 'Props tab');
+      await wait(150);
+      const shown = await session.cdp.evaluate<{ on: boolean; label: string | null; index: number; inLayer: boolean }>(`(() => ({
+        on: Boolean(window.store.get().deck.pageNumbers),
+        label: document.querySelector('#canvas .stage > .page-number')?.textContent ?? null,
+        index: window.store.get().slideIndex,
+        inLayer: Boolean(document.querySelector('#canvas .slide-layer .page-number')),
+      }))()`);
+      const expected = shown.on ? String(shown.index + 1) : null;
+      if (shown.label !== expected) {
+        flag('routing', `page numbers ${shown.on ? 'on' : 'off'} on slide ${shown.index + 1} showed ${JSON.stringify(shown.label)}`);
+      }
+      if (shown.inLayer) flag('routing', 'the page number landed inside the slide layer');
       return 'same';
     }
     case 'undo':

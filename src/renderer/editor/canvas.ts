@@ -12,6 +12,7 @@ import {
   syncShapeBody,
   fitAutoText,
   renderElement,
+  renderPageNumber,
   renderSlide,
   scheduleAutoFit,
   syncMediaFrame,
@@ -661,6 +662,8 @@ export class EditorCanvas {
   private store: EditorStore;
   private host: HTMLElement;
   private stage: HTMLElement;
+  /** The page number drawn over the slide, and what it was drawn from. */
+  private pageNumber: { node: HTMLElement | null; key: string } = { node: null, key: '' };
   private slideLayer: HTMLElement;
   private overlay: HTMLElement;
   private zoomInput: HTMLInputElement;
@@ -890,6 +893,10 @@ export class EditorCanvas {
     document.addEventListener('selectionchange', () => this.captureTextSelection());
 
     store.subscribe(() => this.render());
+    // The page number follows the slide's place in the deck and the deck's
+    // numbering settings, neither of which a slide edit changes, so it is kept
+    // apart from the slide render and refreshed on every store change.
+    store.subscribe(() => this.syncPageNumber());
     this.render();
   }
 
@@ -2010,6 +2017,22 @@ export class EditorCanvas {
       if (isCommandModifierKey(ev.key) || !commandModifier(ev)) this.setRotationModifier(false);
     });
     window.addEventListener('blur', () => this.setRotationModifier(false));
+  }
+
+  /**
+   * Draw the current slide's page number between the slide and the selection
+   * overlay: above every element, as in the player, but under the handles so
+   * it never hides one. It is not slide content, so the slide layer (and the
+   * render-invariant check against a fresh slide render) never contains it.
+   */
+  private syncPageNumber(): void {
+    const { deck, slideIndex } = this.store.get();
+    const node = renderPageNumber(deck, slideIndex);
+    const key = node ? node.outerHTML : '';
+    if (key === this.pageNumber.key) return;
+    this.pageNumber.node?.remove();
+    if (node) this.stage.insertBefore(node, this.overlay);
+    this.pageNumber = { node, key };
   }
 
   private setRotationModifier(active: boolean): void {

@@ -3696,3 +3696,38 @@ describe('list kinds per level', () => {
     expect(html).toBe('<ol><li>Step one<ul><li>detail a</li><li>detail b</li></ul></li><li>Step two</li></ol>');
   });
 });
+
+describe('page numbers on the editing canvas', () => {
+  it('shows the current slide\'s number above the slide, following moves and settings', () => {
+    const { store, host } = setup();
+    store.commit((deck) => {
+      deck.slides.push({ ...structuredClone(deck.slides[0]), id: 'slide-2', elements: [] });
+      deck.slides.push({ ...structuredClone(deck.slides[0]), id: 'slide-3', elements: [] });
+      deck.pageNumbers = {
+        position: 'bottom-right', margin: 40, fontSize: 24, color: null,
+        format: 'number-of-total', startAt: 1, hideOnTitle: true, hideOnFirst: false,
+      };
+    }, { history: false });
+    const shown = () => host.querySelector<HTMLElement>('.stage > .page-number')?.textContent ?? null;
+    expect(shown()).toBe('1 / 3');
+    // Under the selection overlay, never inside the slide layer the render
+    // invariant compares against a fresh slide render.
+    expect(host.querySelector('.slide-layer .page-number')).toBeNull();
+    expect(host.querySelector('.stage > .page-number')!.nextElementSibling?.className).toBe('overlay-layer');
+
+    store.selectSlide(2);
+    expect(shown()).toBe('3 / 3');
+
+    // Moving the slide renumbers it without any edit to the slide itself.
+    store.commit((deck) => { deck.slides.unshift(deck.slides.pop()!); }, { label: 'Move slide' });
+    store.selectSlide(0);
+    expect(shown()).toBe('1 / 3');
+
+    store.commit((deck) => { deck.slides[0].layout = 'title'; }, { label: 'Title layout' });
+    expect(shown()).toBeNull();
+
+    store.commit((deck) => { deck.pageNumbers = null; }, { label: 'Hide page numbers' });
+    store.selectSlide(1);
+    expect(shown()).toBeNull();
+  });
+});

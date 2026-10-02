@@ -208,6 +208,24 @@ describe('speaker view', () => {
     view.destroy();
   });
 
+  it('shows the deck\'s page numbers on both previews', () => {
+    const view = open();
+    const deck = deckOf(['Title', 'Method', 'Results']);
+    deck.slides[0]!.layout = 'title';
+    deck.pageNumbers = {
+      position: 'bottom-right', margin: 40, fontSize: 24, color: null,
+      format: 'number', startAt: 1, hideOnTitle: true, hideOnFirst: false,
+    };
+    view.setDeck(deck);
+    const number = (selector: string) => host.querySelector(`${selector} .page-number`)?.textContent ?? null;
+    expect(number('.speaker-current')).toBeNull();
+    expect(number('.speaker-next')).toBe('2');
+    view.setState(state({ cursor: { slide: 1, step: 0 } }));
+    expect(number('.speaker-current')).toBe('2');
+    expect(number('.speaker-next')).toBe('3');
+    view.destroy();
+  });
+
   it('reports slide and build position', () => {
     const view = open();
     view.setDeck(deckOf(['Intro', 'Method', 'Results']));

@@ -1,4 +1,5 @@
-import type { Deck, Slide, ThemeStyle } from '@shared/deck.js';
+import { PAGE_NUMBER_POSITIONS, type Deck, type PageNumbers, type Slide, type ThemeStyle } from '@shared/deck.js';
+import { DEFAULT_PAGE_NUMBERS } from '@shared/pageNumbers.js';
 import type { FixedLayout } from '@shared/layoutMasters.js';
 import {
   THEMES,
@@ -147,6 +148,9 @@ export function createThemePanel(deps: ThemePanelDeps): ThemePanel {
   let themeApplyButton: HTMLButtonElement | null = null;
   let themeReadout: HTMLElement | null = null;
   let mastersHost: HTMLElement | null = null;
+  let pageNumbersHost: HTMLElement | null = null;
+  /** The settings the page-number controls were last built from. */
+  let pageNumbersKey: string | null = null;
   let mastersKey = '';
   let modeButtons = new Map<ThemeMode, HTMLButtonElement>();
   let activeThemeHost: HTMLElement | null = null;
@@ -455,6 +459,110 @@ export function createThemePanel(deps: ThemePanelDeps): ThemePanel {
     }
   }
 
+  /* --- page numbers --- */
+
+  /** A labelled select, laid out like the panel's other fields. */
+  function choiceField(
+    label: string,
+    choices: Array<[string, string]>,
+    value: string,
+    onChange: (value: string) => void,
+  ): HTMLElement {
+    const wrap = document.createElement('label');
+    wrap.className = 'field';
+    const span = document.createElement('span');
+    span.textContent = label;
+    const select = document.createElement('select');
+    for (const [optionValue, text] of choices) {
+      const option = document.createElement('option');
+      option.value = optionValue;
+      option.textContent = text;
+      select.appendChild(option);
+    }
+    select.value = value;
+    select.addEventListener('change', () => onChange(select.value));
+    wrap.append(span, select);
+    return wrap;
+  }
+
+  const POSITION_LABELS: Record<PageNumbers['position'], string> = {
+    'bottom-right': 'Bottom right',
+    'bottom-center': 'Bottom centre',
+    'bottom-left': 'Bottom left',
+    'top-right': 'Top right',
+    'top-center': 'Top centre',
+    'top-left': 'Top left',
+  };
+
+  /**
+   * Deck-wide slide numbers: on or off, then where, how big, what colour and
+   * which slides skip their number. Every change is one undoable deck edit.
+   * Rebuilt only when the settings change, so an unrelated edit never yanks a
+   * field out from under the author.
+   */
+  function renderPageNumbers(force = false): void {
+    if (!pageNumbersHost) return;
+    const { deck } = store.get();
+    const settings = deck.pageNumbers;
+    const key = JSON.stringify(settings);
+    if (!force && key === pageNumbersKey) return;
+    pageNumbersKey = key;
+    const update = (patch: Partial<PageNumbers>, label: string) => store.commit((target) => {
+      target.pageNumbers = { ...(target.pageNumbers ?? DEFAULT_PAGE_NUMBERS), ...patch };
+    }, { label });
+
+    const show = optionBox('Show page numbers', Boolean(settings));
+    show.input.addEventListener('change', () => {
+      if (show.input.checked) update({}, 'Show page numbers');
+      else store.commit((target) => { target.pageNumbers = null; }, { label: 'Hide page numbers' });
+    });
+    if (!settings) {
+      pageNumbersHost.replaceChildren(show.label);
+      return;
+    }
+
+    const placement = document.createElement('div');
+    placement.className = 'field-grid field-grid-2';
+    placement.append(
+      choiceField('Position', PAGE_NUMBER_POSITIONS.map((position) => [position, POSITION_LABELS[position]]),
+        settings.position, (value) => update({ position: value as PageNumbers['position'] }, 'Move page numbers')),
+      numberField('Margin', settings.margin, (value) => update({ margin: Math.max(0, Math.round(value)) }, 'Change page number margin'), { unit: 'px' }),
+    );
+    const look = document.createElement('div');
+    look.className = 'field-grid field-grid-2';
+    look.append(
+      numberField('Size', settings.fontSize, (value) => update({ fontSize: Math.min(400, Math.max(6, value)) }, 'Change page number size'), { unit: 'px' }),
+      choiceField('Format', [['number', '3'], ['number-of-total', '3 / 12']], settings.format,
+        (value) => update({ format: value as PageNumbers['format'] }, 'Change page number format')),
+    );
+    const colour = colorField('Colour', settings.color, (value) => update({ color: value }, 'Change page number colour'), {
+      inheritedValue: deck.themeStyle?.colors.muted ?? null,
+      clear: { kind: 'theme', label: 'Theme caption colour' },
+    });
+    const numbering = document.createElement('div');
+    numbering.className = 'field-grid field-grid-2';
+    numbering.append(
+      numberField('Start at', settings.startAt, (value) => update({ startAt: Math.round(value) }, 'Change first page number')),
+    );
+    const hideOnTitle = optionBox('Hide on title slides', settings.hideOnTitle, 'still counted');
+    hideOnTitle.input.addEventListener('change', () =>
+      update({ hideOnTitle: hideOnTitle.input.checked }, 'Change page numbers on title slides'));
+    const hideOnFirst = optionBox('Hide on first slide', settings.hideOnFirst, 'still counted');
+    hideOnFirst.input.addEventListener('change', () =>
+      update({ hideOnFirst: hideOnFirst.input.checked }, 'Change page number on the first slide'));
+
+    pageNumbersHost.replaceChildren(
+      show.label,
+      placement,
+      look,
+      colour,
+      numbering,
+      hideOnTitle.label,
+      hideOnFirst.label,
+      hintLine('Hidden slides are skipped and not counted.'),
+    );
+  }
+
   /**
    * The Props tab's section: a ruled block under an `insp-subtitle` heading.
    * Built here rather than imported so the two panels stay independent, but
@@ -664,11 +772,18 @@ export function createThemePanel(deps: ThemePanelDeps): ThemePanel {
     const layoutsSection = panelSection('Layouts', 'layouts-section');
     layoutsSection.append(mastersHost, mastersRow);
 
-    wrap.append(intro, themeSection, applySection, layoutsSection);
+    /* --- page numbers --- */
+    pageNumbersHost = document.createElement('div');
+    pageNumbersHost.className = 'design-page-numbers';
+    const pageNumbersSection = panelSection('Page numbers', 'page-numbers-section');
+    pageNumbersSection.append(pageNumbersHost);
+
+    wrap.append(intro, themeSection, applySection, layoutsSection, pageNumbersSection);
     refreshPreviousBadge();
     renderActiveTheme();
     renderMasters(true);
     renderReadouts();
+    renderPageNumbers(true);
     return wrap;
   }
 
@@ -820,6 +935,7 @@ export function createThemePanel(deps: ThemePanelDeps): ThemePanel {
   const element = build();
   // The readouts are dry runs over live deck state, so they follow the deck.
   store.subscribe(() => {
+    renderPageNumbers();
     if (draft) return;
     renderMasters();
     renderReadouts();
