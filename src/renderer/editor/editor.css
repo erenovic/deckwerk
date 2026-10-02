@@ -4590,6 +4590,7 @@ button.ghost:hover:not(:disabled) { color: var(--text); background: transparent;
 /* A group's layers list: pieces of a group inside it are indented under it. */
 .group-member-row { padding-left: calc(26px + var(--depth, 0) * 14px); }
 .group-member-row::before { left: calc(8px + var(--depth, 0) * 14px); }
+.group-member-row:hover { background: var(--accent-soft, rgb(59 130 246 / 22%)); }
 .group-actions { margin-bottom: 10px; }
 /* The steps that animate this element, drawn as the same orange badge the
    canvas uses, from a data attribute so the row's text stays its name. */

@@ -4077,7 +4077,8 @@ describe('object groups', () => {
     const rows = [...inspectorHost.querySelectorAll<HTMLElement>('.group-member-row')];
     // Frontmost first: the video paints above the text.
     expect(rows.map((row) => row.dataset.elementId)).toEqual(['video-1', 'text-1']);
-    expect(rows.every((row) => row.classList.contains('selected'))).toBe(true);
+    // The group is the selection; none of its rows is marked on its own.
+    expect(rows.some((row) => row.classList.contains('selected'))).toBe(false);
     rows[1].click();
     expect(selection(store)).toEqual(['text-1']);
     const inside = [...inspectorHost.querySelectorAll<HTMLElement>('.group-member-row')];

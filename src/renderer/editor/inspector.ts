@@ -440,7 +440,9 @@ export class Inspector {
         row.type = 'button';
         row.className = 'build-element-row group-member-row';
         row.style.setProperty('--depth', String(depth));
-        row.classList.toggle('selected', ids.every((id) => selection.has(id)));
+        // With the group selected whole every piece is "selected", which lit
+        // the entire list; only a piece picked inside the group is marked.
+        row.classList.toggle('selected', !whole && ids.every((id) => selection.has(id)));
         if (child.kind === 'group') {
           row.dataset.kind = 'group';
           row.dataset.groupId = child.id;
