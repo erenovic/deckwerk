@@ -364,6 +364,45 @@ body.panel-resizing iframe { pointer-events: none; }
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 
+/* Problems on the slide in view, at the foot of the right sidebar
+   (slideWarnings.ts): equations that cannot render, each one a button that
+   selects its box. */
+.slide-warnings {
+  --warning: #e0a030;
+  flex: none;
+  max-height: 40%;
+  overflow-y: auto;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--warning) 8%, var(--panel));
+}
+.slide-warnings[hidden] { display: none; }
+.slide-warnings header {
+  margin-bottom: 8px;
+  color: var(--warning);
+  font: 700 10px/1.3 var(--mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.slide-warnings header::before { content: '\26A0\FE0E  '; }
+.slide-warning-list { display: grid; gap: 6px; }
+.slide-warning {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 7px 8px;
+  border-color: color-mix(in srgb, var(--warning) 35%, var(--line));
+  text-align: left;
+  white-space: normal;
+}
+.slide-warning strong { color: var(--text); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+.slide-warning span { color: var(--text); font: 11.5px/1.45 system-ui, -apple-system, sans-serif; letter-spacing: 0; }
+.slide-warning code {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font: 11px/1.4 var(--mono);
+}
+
 /* View › Show Grid (Cmd/Ctrl+'): faint placement lines over the slide, every
    40 canvas px and stronger every 200, drawn one screen pixel wide at any
    zoom (--editor-inv-scale undoes the stage's scale). A blue tint reads on

@@ -3884,3 +3884,21 @@ describe('the placement grid (View › Show Grid)', () => {
     expect((store.slide!.elements.find((el) => el.id === 'text-1') as { html: string }).html).toBe('Original text');
   });
 });
+
+describe('equation marks after an edit in place', () => {
+  it('marks and unmarks an unclosed $ as the text changes', () => {
+    const { store, host } = setup();
+    const content = () => host.querySelector<HTMLElement>('[data-element-id="text-1"] .text-content')!;
+    const setHtml = (html: string) => store.commit((deck) => {
+      const element = deck.slides[0].elements.find((candidate) => candidate.id === 'text-1');
+      if (element?.type === 'text') element.html = html;
+    }, { label: 'edit' });
+    setHtml('<p>Costs $5</p>');
+    expect(content().dataset.mathUnclosed).toBe('true');
+    setHtml('<p>Costs \\$5</p>');
+    expect(content().dataset.mathUnclosed).toBeUndefined();
+    setHtml('<p>Loss $x^2$</p>');
+    expect(content().querySelectorAll('.katex')).toHaveLength(1);
+    expect(content().dataset.mathUnclosed).toBeUndefined();
+  });
+});

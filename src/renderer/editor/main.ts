@@ -24,6 +24,7 @@ import { createDeckWerkButton } from './aboutDialog.js';
 import { trackPreviewFrameRecovery } from '../player/previewFrameRecovery.js';
 import { EditorCanvas } from './canvas.js';
 import { FindBar } from './findBar.js';
+import { SlideWarnings } from './slideWarnings.js';
 import { connectRecentColors } from './colorPicker.js';
 import { CssEditor } from './cssEditor.js';
 import { Inspector } from './inspector.js';
@@ -142,6 +143,7 @@ const notesDrawer = new SpeakerNotesDrawer(el('canvas'), store, {
   onStatus: setStatusMessage,
 });
 const findBar = new FindBar(el('canvas'), store, { notes: notesDrawer });
+new SlideWarnings(el('side'), store, el('canvas'), () => canvas.editingElementId());
 // View › Show Grid: the menu toggles the canvas's grid, and the canvas keeps
 // the menu's checkmark in step (including the state remembered from last time).
 canvas.onGridChange = (shown) => window.api.setGridState(shown);

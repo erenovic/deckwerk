@@ -11,6 +11,7 @@ import { isMediaBorderPaint, typedPropertyOwnsCss } from '@shared/nativeCss.js';
 import { applyTableColumnWidths } from '@shared/paragraphs.js';
 import { isEmbeddableWebSrc } from '@shared/webBridge.js';
 import { pageNumberLabel } from '@shared/pageNumbers.js';
+import { hasUnclosedMath, joinMathAcrossRuns } from './mathRuns.js';
 import renderMathInElement from 'katex/contrib/auto-render';
 import 'katex/dist/katex.min.css';
 
@@ -711,6 +712,8 @@ function renderBody(el: SlideElement, opts: RenderOptions): HTMLElement | SVGEle
         ? applyTableColumnWidths(el.html, el.table.columnWidths)
         : el.html;
       content.innerHTML = authored.replace(/\\\$/g, escapedDollar);
+      // A formula the editor split across formatting runs is still one formula.
+      joinMathAcrossRuns(content);
       renderMathInElement(content, {
         // Standard TeX convention: display math first so $$ is not consumed
         // as two empty inline expressions. A literal dollar is written as \$.
@@ -721,6 +724,10 @@ function renderBody(el: SlideElement, opts: RenderOptions): HTMLElement | SVGEle
         throwOnError: false,
         strict: 'ignore',
       });
+      // A `$` no formula claimed is an equation that never closed; say so for
+      // the editor's warnings while escaped dollars are still masked, so a
+      // written dollar sign is never mistaken for one.
+      if (hasUnclosedMath(content)) content.dataset.mathUnclosed = 'true';
       const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
       while (walker.nextNode()) {
         const text = walker.currentNode as Text;

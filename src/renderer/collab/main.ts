@@ -6,6 +6,7 @@ import { emptyDeck } from '@shared/deck.js';
 import { setIdSuffix } from '@shared/geometry.js';
 import { EditorCanvas } from '../editor/canvas.js';
 import { FindBar } from '../editor/findBar.js';
+import { SlideWarnings } from '../editor/slideWarnings.js';
 import { SpeakerNotesDrawer } from '../editor/speakerNotesDrawer.js';
 import { createDeckWerkButton } from '../editor/aboutDialog.js';
 import { setCommentAuthor } from '../editor/comments.js';
@@ -235,6 +236,7 @@ const notesDrawer = new SpeakerNotesDrawer(el('canvas'), store, {
   onStatus: setStatusMessage,
 });
 const findBar = new FindBar(el('canvas'), store, { notes: notesDrawer });
+new SlideWarnings(el('side'), store, el('canvas'), () => canvas.editingElementId());
 const inspector = new Inspector(el('inspector'), store);
 new TimelinePanel(el('timeline'), store);
 new HistoryPanel(el('history'), store);
