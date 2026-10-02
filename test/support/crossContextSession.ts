@@ -469,8 +469,12 @@ function buildSession(cdp: Cdp): CrossSession {
         for (const node of document.querySelectorAll('.slide-layer [data-element-id]')) {
           const id = node.getAttribute('data-element-id');
           const body = node.querySelector('.text-content');
+          // The pending-style sentinel (U+2060) and zero-width spaces are
+          // editor-only and stripped on commit; reading them as spaces made a
+          // live edit look different from the same text once committed.
           out[id] = (body ? body.textContent : '')
-            .replace(/[\\s\\u00a0\\u200b\\u2060]+/g, ' ').trim();
+            .replace(/[\\u200b\\u2060]/g, '')
+            .replace(/[\\s\\u00a0]+/g, ' ').trim();
         }
         return out;
       })()`);

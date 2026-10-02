@@ -570,6 +570,19 @@ async function performOp(
           flag('census', `Shift-drag moved ${move.id} by (${move.dx}, ${move.dy}) but ${moves[0].id} by (${moves[0].dx}, ${moves[0].dy})`);
         }
       }
+      // Undo the drag with a real Cmd/Ctrl+Z: one step must put everything
+      // back exactly, and objects never pile up on each other across steps
+      // (a later click on a covered box is refused by the click helper).
+      if (moves.length > 0) {
+        await session.chord('z', 'KeyZ', 90, MOD);
+        await wait(200);
+        const restored = await positions();
+        for (const id of Object.keys(before)) {
+          if (restored[id] && (restored[id].x !== before[id].x || restored[id].y !== before[id].y)) {
+            flag('undoRoundTrip', `undoing the Shift-drag left ${id} at (${restored[id].x}, ${restored[id].y}), not (${before[id].x}, ${before[id].y})`);
+          }
+        }
+      }
       return 'same';
     }
     case 'page numbers': {
