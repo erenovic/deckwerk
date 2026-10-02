@@ -501,7 +501,7 @@ function checkInvariants(
     state.deck, (slide.layout ?? 'freeform') as FixedLayout,
   ).elements as SlideElement[])
     .map((element) => (element.type === 'text' ? element.layoutPlaceholder : undefined))
-    .filter((slot): slot is 'title' | 'body' => slot !== undefined));
+    .filter((slot): slot is string => slot !== undefined));
   for (const element of slide.elements) {
     const slot = layoutSlotOf(element);
     if (slot === null || layoutSlots.has(slot) || !element.class.includes('placeholder')) continue;

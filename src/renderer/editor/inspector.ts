@@ -15,7 +15,12 @@ import type {
 import { type AlignMode, alignElements } from './align.js';
 import { sameDeckIgnoringNotes, type EditorStore } from './store.js';
 import { LAYOUT_LABELS, applySlideLayout, type SlideLayout } from './slideLayouts.js';
-import { elementFollowsLayout, layoutGeometryFor, realignElementToLayout } from '@shared/layoutMasters.js';
+import {
+  elementFollowsLayout,
+  layoutGeometryFor,
+  realignElementToLayout,
+  resolveLayoutMaster,
+} from '@shared/layoutMasters.js';
 import { MorphPanel } from './morphPanel.js';
 import { fontFamilyField, primaryFamily } from './fontPicker.js';
 import {
@@ -425,7 +430,7 @@ export class Inspector {
       this.store.commit((next) => {
         for (const slide of next.slides) {
           if (selectedIds.has(slide.id)) {
-            applySlideLayout(slide, layoutSelect.value as SlideLayout, next.layoutMasters);
+            applySlideLayout(slide, layoutSelect.value, next.layoutMasters, next.customLayouts);
           }
         }
       }, {
@@ -435,14 +440,17 @@ export class Inspector {
     layout.append(layoutLabel, layoutSelect);
     section.content.appendChild(layout);
 
-    const masters = this.store.get().deck.layoutMasters;
+    const deckForLayouts = this.store.get().deck;
+    const masters = deckForLayouts.layoutMasters;
     const backgroundValues = slides.map((slide) => (
       slide.layoutBackgroundInherited ? null : slide.background.color ?? null
     ));
     const backgrounds = sharedValue(backgroundValues);
     const inheritedBackground = sharedValue(slides.map((slide) => {
-      const layoutName = (slide.layout ?? 'freeform') as SlideLayout;
-      return masters?.[layoutName].background.color
+      const own = masters || deckForLayouts.customLayouts.length > 0
+        ? resolveLayoutMaster(deckForLayouts, slide.layout).background.color
+        : null;
+      return own
         ?? this.store.get().deck.themeStyle?.colors.background
         ?? null;
     }));
@@ -453,9 +461,8 @@ export class Inspector {
         this.store.commit((next) => {
           for (const slide of next.slides) {
             if (!selectedIds.has(slide.id)) continue;
-            const layoutName = (slide.layout ?? 'freeform') as SlideLayout;
-            if (value === null && next.layoutMasters) {
-              slide.background = structuredClone(next.layoutMasters[layoutName].background);
+            if (value === null && (next.layoutMasters || next.customLayouts.length > 0)) {
+              slide.background = structuredClone(resolveLayoutMaster(next, slide.layout).background);
               slide.layoutBackgroundInherited = true;
             } else {
               slide.background = { color: value, image: null };
@@ -801,8 +808,8 @@ export class Inspector {
     // back but trial and error; give it one. Shown only for the slot's own box
     // on a slide that has a layout, and idle while the box is already there.
     const slide = this.store.slide;
-    if (!multi && slide && layoutGeometryFor(slide, first, this.store.get().deck.layoutMasters)) {
-      const aligned = elementFollowsLayout(slide, first, this.store.get().deck.layoutMasters);
+    if (!multi && slide && layoutGeometryFor(slide, first, this.store.get().deck.layoutMasters, this.store.get().deck.customLayouts)) {
+      const aligned = elementFollowsLayout(slide, first, this.store.get().deck.layoutMasters, this.store.get().deck.customLayouts);
       const row = document.createElement('div');
       row.className = 'layout-reset-row';
       const reset = document.createElement('button');
@@ -820,7 +827,7 @@ export class Inspector {
         const current = this.store.slide;
         if (!current) return;
         const shown = structuredClone(current);
-        realignElementToLayout(shown, first.id, this.store.get().deck.layoutMasters);
+        realignElementToLayout(shown, first.id, this.store.get().deck.layoutMasters, this.store.get().deck.customLayouts);
         this.onPreviewSlide(shown, 'Reset to layout position');
       };
       const clearPreview = () => this.onPreviewSlide?.(null, '');
@@ -833,7 +840,7 @@ export class Inspector {
         const id = first.id;
         this.store.commit((deck) => {
           const target = deck.slides.find((candidate) => candidate.elements.some((el) => el.id === id));
-          if (target) realignElementToLayout(target, id, deck.layoutMasters);
+          if (target) realignElementToLayout(target, id, deck.layoutMasters, deck.customLayouts);
         }, { label: 'Reset to layout position' });
       });
       row.appendChild(reset);

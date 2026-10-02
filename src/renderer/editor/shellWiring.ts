@@ -506,13 +506,13 @@ export function makeContextActions(
         { label: 'Send to back', action: () => store.updateSelected((e) => (e.z -= 1000)) },
       );
       if (el.type === 'text' && store.slide
-        && layoutGeometryFor(store.slide, el, store.get().deck.layoutMasters)
-        && !elementFollowsLayout(store.slide, el, store.get().deck.layoutMasters)) {
+        && layoutGeometryFor(store.slide, el, store.get().deck.layoutMasters, store.get().deck.customLayouts)
+        && !elementFollowsLayout(store.slide, el, store.get().deck.layoutMasters, store.get().deck.customLayouts)) {
         items.push('separator', {
           label: 'Reset to layout position',
           action: () => store.commit((deck) => {
             const slide = deck.slides.find((candidate) => candidate.elements.some((e) => e.id === el.id));
-            if (slide) realignElementToLayout(slide, el.id, deck.layoutMasters);
+            if (slide) realignElementToLayout(slide, el.id, deck.layoutMasters, deck.customLayouts);
           }, { label: 'Reset to layout position' }),
         });
       }

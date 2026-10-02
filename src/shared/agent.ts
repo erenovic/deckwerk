@@ -135,6 +135,7 @@ const UpdateDeckOperation = z.object({
   pageNumbers: DeckSchema.shape.pageNumbers.removeDefault().optional(),
   customThemes: DeckSchema.shape.customThemes.removeDefault().optional(),
   layoutMasters: DeckSchema.shape.layoutMasters.removeDefault().optional(),
+  customLayouts: DeckSchema.shape.customLayouts.removeDefault().optional(),
   morphEasing: z.enum(['ease-in-out', 'ease-out', 'linear']).optional(),
 });
 /**
@@ -346,6 +347,10 @@ function applyOperation(deck: Deck, operation: AgentOperation): void {
         // syncDeckWithLayoutMasters alongside the operation, as the layout
         // editor does.
         deck.layoutMasters = structuredClone(operation.layoutMasters);
+      }
+      if (operation.customLayouts !== undefined) {
+        // Like layoutMasters above: a field setter; slides travel as their own ops.
+        deck.customLayouts = structuredClone(operation.customLayouts);
       }
       if (operation.customThemes !== undefined) {
         deck.customThemes = structuredClone(operation.customThemes);

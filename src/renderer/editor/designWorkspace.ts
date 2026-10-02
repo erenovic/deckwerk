@@ -217,13 +217,13 @@ export class DesignWorkspace {
     this.deps.canvasHost.classList.toggle('design-theme-previewing', Boolean(theme));
   }
 
-  openLayoutEditor(initialLayout: FixedLayout): void {
+  openLayoutEditor(initialLayout: string): void {
     if (this.editingOverlay) return;
     const sourceDeck = this.deps.store.get().deck;
     const masters = structuredClone(sourceDeck.layoutMasters ?? defaultLayoutMasters());
     const masterDeck = masterEditingDeck(sourceDeck, masters);
     const masterStore = new EditorStore(masterDeck);
-    masterStore.selectSlide(Math.max(0, LAYOUTS.indexOf(initialLayout)));
+    masterStore.selectSlide(Math.max(0, LAYOUTS.indexOf(initialLayout as FixedLayout)));
 
     const overlay = document.createElement('div');
     overlay.className = 'layout-editor-overlay';
@@ -270,7 +270,7 @@ export class DesignWorkspace {
     const masterInspector = new Inspector(inspectorHost, masterStore);
     masterInspector.editsLayoutMasters = true;
     wireCanvasInspector(masterCanvas, masterInspector);
-    masterInspector.onEditLayouts = (layout) => masterStore.selectSlide(LAYOUTS.indexOf(layout));
+    masterInspector.onEditLayouts = (layout) => masterStore.selectSlide(LAYOUTS.indexOf(layout as FixedLayout));
 
     const renderRail = (): void => {
       const state = masterStore.get();

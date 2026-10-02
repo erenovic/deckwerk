@@ -966,7 +966,7 @@ export class SlideRail {
     this.store.commit((deck) => {
       const slide = blankSlide();
       deck.slides.splice(at, 0, slide);
-      applySlideLayout(slide, 'standard', deck.layoutMasters);
+      applySlideLayout(slide, 'standard', deck.layoutMasters, deck.customLayouts);
       // Layout gives the slide its geometry; the deck's theme gives it its
       // voice, so a new slide never lands looking unthemed beside its siblings.
       applyDeckThemeToNewSlide(deck, at);
@@ -1064,7 +1064,7 @@ export class SlideRail {
       if (!survivor) return;
       const kept = { ...blankSlide(), id: survivor };
       d.slides[0] = kept;
-      applySlideLayout(kept, 'standard', d.layoutMasters);
+      applySlideLayout(kept, 'standard', d.layoutMasters, d.customLayouts);
       applyDeckThemeToNewSlide(d, 0);
     }, { label: doomed.length === 1 ? 'Delete slide' : `Delete ${doomed.length} slides` });
     this.store.selectSlide(wholeDeck ? 0 : Math.max(0, first - 1));

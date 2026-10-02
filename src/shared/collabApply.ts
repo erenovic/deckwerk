@@ -128,6 +128,7 @@ function applyLenient(
       if (op.pageNumbers !== undefined) deck.pageNumbers = structuredClone(op.pageNumbers);
       if (op.customThemes !== undefined) deck.customThemes = structuredClone(op.customThemes);
       if (op.layoutMasters !== undefined) deck.layoutMasters = structuredClone(op.layoutMasters);
+      if (op.customLayouts !== undefined) deck.customLayouts = structuredClone(op.customLayouts);
       if (op.morphEasing !== undefined) deck.morphEasing = op.morphEasing;
       return;
     case 'setSlideProperties': {

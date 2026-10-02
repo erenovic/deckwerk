@@ -120,6 +120,13 @@ export const MediaEffectSchema = z.discriminatedUnion('type', [
   }),
 ]);
 
+/**
+ * The placeholder slots a layout can define: a title, a subtitle, body text
+ * and a caption, each optionally numbered (`body-2`, `body-3`) when a layout
+ * has more than one, as a two-column layout has two bodies.
+ */
+export const LAYOUT_SLOT_PATTERN = /^(?:title|subtitle|body|caption)(?:-[2-9])?$/;
+
 /** Where on the slide the page number sits. */
 export const PAGE_NUMBER_POSITIONS = [
   'bottom-right', 'bottom-center', 'bottom-left', 'top-right', 'top-center', 'top-left',
@@ -203,7 +210,7 @@ const TextElement = BaseElement.extend({
   /** Ordered, non-destructive visual effects. Order is significant. */
   effects: z.array(MediaEffectSchema).optional(),
   /** Required semantic slot when this text is a fixed layout placeholder. */
-  layoutPlaceholder: z.enum(['title', 'body']).optional(),
+  layoutPlaceholder: z.string().regex(LAYOUT_SLOT_PATTERN).optional(),
   /**
    * CSS properties the author set on the whole box deliberately (bold, a
    * chosen face, a colour). The rest of `style` may be copies the app wrote
@@ -370,6 +377,19 @@ const LayoutMasterSchema = z.object({
 });
 
 /**
+ * A layout the author made, beside the three built-in ones: a master (its
+ * background, placeholders and repeated objects) with a name. `basedOn` is
+ * the built-in its slides fall back to if it is deleted; `titleSlide` makes
+ * its slides count as title slides (no page number), as the Title layout's do.
+ */
+const CustomLayoutSchema = LayoutMasterSchema.extend({
+  id: z.string().min(1),
+  name: z.string(),
+  basedOn: z.enum(['freeform', 'standard', 'title']).default('standard'),
+  titleSlide: z.boolean().default(false),
+});
+
+/**
  * Timeline entries are `trigger + action` pairs evaluated in array order.
  *
  * v1 implements the `click`/`afterPrev` triggers and the `appear`/`play`
@@ -411,7 +431,8 @@ export const SlideSchema = z.object({
   background: SlideBackgroundSchema.default({ color: null, image: null }),
   notes: z.string().default(''),
   /** Geometry preset; themes may decorate it but never own its positions. */
-  layout: z.enum(['freeform', 'standard', 'title']).optional(),
+  /** A built-in layout ('freeform', 'standard', 'title') or the id of one of the deck's own. */
+  layout: z.string().optional(),
   /** True while the concrete slide background mirrors its selected layout master. */
   layoutBackgroundInherited: z.boolean().optional(),
   /** Animate the transition from the preceding slide, including unpaired fades. */
@@ -484,6 +505,8 @@ export const DeckSchema = z.object({
     standard: LayoutMasterSchema,
     title: LayoutMasterSchema,
   }).nullable().default(null),
+  /** The deck's own layouts, in the order the layout editor lists them. */
+  customLayouts: z.array(CustomLayoutSchema).default([]),
   /** Deck-wide motion curve for Morph transitions. */
   morphEasing: z.enum(['ease-in-out', 'ease-out', 'linear']).default('ease-in-out'),
   slides: z.array(SlideSchema).default([]),
@@ -508,6 +531,7 @@ export type ThemeStyle = z.infer<typeof ThemeStyleSchema>;
 export type ThemeSelection = z.infer<typeof ThemeSelectionSchema>;
 export type CustomTheme = z.infer<typeof CustomThemeSchema>;
 export type LayoutMaster = z.infer<typeof LayoutMasterSchema>;
+export type CustomLayout = z.infer<typeof CustomLayoutSchema>;
 
 export const DECK_VERSION = 1 as const;
 

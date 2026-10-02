@@ -1,11 +1,18 @@
 import type { AgentOperation } from './agent.js';
-import { MediaEffectSchema, MIRRORED_TEXT_STYLE_PROPERTIES } from './deck.js';
+import { LAYOUT_SLOT_PATTERN, MediaEffectSchema, MIRRORED_TEXT_STYLE_PROPERTIES } from './deck.js';
 import type { Deck, MediaEffect, Slide, SlideElement, TimelineEntry } from './deck.js';
 import { fitAutoTextElement } from './autoFit.js';
 import { KATEX_AUTO_RENDER_JS, KATEX_CSS, KATEX_JS } from './katexInline.js';
 import { shapeSvg } from './shapeSvg.js';
 import { applyTableColumnWidths } from './paragraphs.js';
-import { layoutMaster, syncSlideWithLayoutMaster, type FixedLayout } from './layoutMasters.js';
+import {
+  customLayout,
+  isBuiltInLayout,
+  layoutChoices,
+  layoutMaster,
+  slotRoleClass,
+  syncSlideWithLayoutMaster,
+} from './layoutMasters.js';
 import {
   cssMediaBorder,
   cssMediaRadius,
@@ -677,22 +684,21 @@ export function slidesFromMeasured(deck: Deck, measured: MeasuredSlide[]): Slide
     });
     const layout = slide.layout;
     if (layout === undefined) return built;
-    if (!FIXED_LAYOUTS.includes(layout as FixedLayout)) {
-      throw new HtmlAuthoringError(`Unknown data-layout "${layout}" on a slide. Use ${FIXED_LAYOUTS.join(', ')}.`);
+    if (!isBuiltInLayout(layout) && !customLayout(deck, layout)) {
+      const known = layoutChoices(deck).map((choice) => choice.id);
+      throw new HtmlAuthoringError(`Unknown data-layout "${layout}" on a slide. Use ${known.join(', ')}.`);
     }
     // A page that names a layout gets the editor's layout behaviour: its
     // title and body boxes (data-layout-slot, or a role class on an exported
     // page) become the master's placeholders, placed by the master and styled
     // by the deck's theme rather than by what the page's browser computed.
-    syncSlideWithLayoutMaster(built, layout as FixedLayout, layoutMaster(deck, layout as FixedLayout), {
+    syncSlideWithLayoutMaster(built, layout, layoutMaster(deck, layout), {
       replaceStyle: true,
       forceBackground: !slide.ownBackground,
     });
     return built;
   });
 }
-
-const FIXED_LAYOUTS: FixedLayout[] = ['freeform', 'standard', 'title'];
 
 /** A page the author must fix, as opposed to a compiler that failed. */
 export class HtmlAuthoringError extends Error {}
@@ -938,12 +944,12 @@ export function elementFromNode(
     valign: valignFrom(node.dataset.valign),
     ...(contentStyle ? { contentStyle } : {}),
     ...(node.dataset.autofit !== undefined ? { autoFit: node.dataset.autofit !== 'false' } : {}),
-    ...(node.dataset.layoutSlot === 'title' || node.dataset.layoutSlot === 'body'
+    ...(node.dataset.layoutSlot && LAYOUT_SLOT_PATTERN.test(node.dataset.layoutSlot)
       ? {
         layoutPlaceholder: node.dataset.layoutSlot,
-        class: base.class.includes(`role-${node.dataset.layoutSlot}`)
+        class: base.class.includes(slotRoleClass(node.dataset.layoutSlot))
           ? base.class
-          : [...base.class, `role-${node.dataset.layoutSlot}`],
+          : [...base.class, slotRoleClass(node.dataset.layoutSlot)],
       }
       : {}),
     ...(node.dataset.table === 'true' && tableWidths.length > 0 ? {

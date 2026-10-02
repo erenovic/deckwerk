@@ -103,7 +103,7 @@ export interface ThemePanelDeps {
    */
   onThemePreview?: (theme: ThemePreset | null) => void;
   /** Enter the explicit editor for the fixed layout masters. */
-  onEditLayouts?: (layout: FixedLayout) => void;
+  onEditLayouts?: (layout: string) => void;
   /** Show a dry-run slide on the canvas in place of the real one; `null` clears it. */
   onPreviewSlide?: (slide: Slide | null, label: string) => void;
   /** Lay a theme draft's stylesheet over the editor; `null` removes it. */

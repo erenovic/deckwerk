@@ -1,9 +1,97 @@
-import type { Deck, LayoutMaster, Slide, SlideElement, TextEl } from './deck.js';
+import type { CustomLayout, Deck, LayoutMaster, Slide, SlideElement, TextEl } from './deck.js';
 import { ROLE_TYPE_SCALE_PROPERTIES } from './themes.js';
 
 export type FixedLayout = 'freeform' | 'standard' | 'title';
 
-const roleClass = (slot: 'title' | 'body'): string => `role-${slot}`;
+/** The three layouts every deck has; the author's own come after them. */
+export const BUILT_IN_LAYOUTS: readonly FixedLayout[] = ['freeform', 'standard', 'title'];
+
+/**
+ * A placeholder slot: `title`, `subtitle`, `body` or `caption`, optionally
+ * numbered (`body-2`) when a layout has several of one kind.
+ */
+export type LayoutSlot = string;
+export type SlotKind = 'title' | 'subtitle' | 'body' | 'caption';
+
+/** The kind of a slot, its number stripped. */
+export function slotKind(slot: LayoutSlot): SlotKind {
+  const kind = slot.replace(/-\d+$/, '');
+  return kind === 'title' || kind === 'subtitle' || kind === 'caption' ? kind : 'body';
+}
+
+/** The theme role a slot's text takes: a subtitle reads as a heading. */
+export function slotRoleClass(slot: LayoutSlot): string {
+  return roleClass(slot);
+}
+
+function roleClass(slot: LayoutSlot): string {
+  const kind = slotKind(slot);
+  return `role-${kind === 'subtitle' ? 'heading' : kind}`;
+}
+
+/** The prompt copy a fresh placeholder of this slot holds. */
+export function promptCopy(slot: LayoutSlot): string {
+  const kind = slotKind(slot);
+  const number = /-(\d+)$/.exec(slot)?.[1];
+  const base = kind === 'title' ? 'Slide title' : kind === 'subtitle' ? 'Subtitle' : kind === 'caption' ? 'Caption' : 'Body text';
+  return number ? `${base} ${number}` : base;
+}
+
+/** Deck fields a layout lookup needs; the full deck is fine too. */
+export type LayoutSource = Pick<Deck, 'layoutMasters'> & { customLayouts?: Deck['customLayouts'] };
+
+export function isBuiltInLayout(layout: string | undefined): layout is FixedLayout {
+  return layout === 'freeform' || layout === 'standard' || layout === 'title';
+}
+
+/** The author's layout with this id, if the deck has one. */
+export function customLayout(deck: LayoutSource, layout: string | undefined): CustomLayout | undefined {
+  return layout === undefined ? undefined : deck.customLayouts?.find((candidate) => candidate.id === layout);
+}
+
+/**
+ * The id a slide's layout resolves to: its own when the deck knows it,
+ * freeform otherwise -- a slide left on a layout that no longer exists
+ * places nothing rather than failing.
+ */
+export function resolvedLayoutId(deck: LayoutSource, layout: string | undefined): string {
+  if (isBuiltInLayout(layout) || customLayout(deck, layout)) return layout!;
+  return 'freeform';
+}
+
+/** The master for any layout id, built-in or the deck's own. */
+export function resolveLayoutMaster(deck: LayoutSource, layout: string | undefined): LayoutMaster {
+  const custom = customLayout(deck, layout);
+  if (custom) return custom;
+  const id = isBuiltInLayout(layout) ? layout : 'freeform';
+  return deck.layoutMasters?.[id] ?? defaultLayoutMasters()[id];
+}
+
+/** Display names of the built-in layouts. */
+export const BUILT_IN_LAYOUT_NAMES: Record<FixedLayout, string> = {
+  freeform: 'Freeform',
+  standard: 'Title + Body',
+  title: 'Title',
+};
+
+export function layoutName(deck: LayoutSource, layout: string | undefined): string {
+  const custom = customLayout(deck, layout);
+  if (custom) return custom.name || 'Untitled layout';
+  return BUILT_IN_LAYOUT_NAMES[isBuiltInLayout(layout) ? layout : 'freeform'];
+}
+
+/** Every layout the deck offers, built-ins first, as id and name. */
+export function layoutChoices(deck: LayoutSource): Array<{ id: string; name: string; custom: boolean }> {
+  return [
+    ...BUILT_IN_LAYOUTS.map((id) => ({ id, name: BUILT_IN_LAYOUT_NAMES[id], custom: false })),
+    ...(deck.customLayouts ?? []).map((layout) => ({ id: layout.id, name: layoutName(deck, layout.id), custom: true })),
+  ];
+}
+
+/** Does a slide on this layout count as a title slide (no page number)? */
+export function isTitleLayout(deck: LayoutSource, layout: string | undefined): boolean {
+  return layout === 'title' || customLayout(deck, layout)?.titleSlide === true;
+}
 
 function placeholder(
   id: string,
@@ -52,32 +140,34 @@ export function defaultLayoutMasters(): NonNullable<Deck['layoutMasters']> {
 }
 
 export function layoutMaster(
-  deck: Deck,
-  layout: FixedLayout,
+  deck: LayoutSource,
+  layout: string,
 ): LayoutMaster {
-  return deck.layoutMasters?.[layout] ?? defaultLayoutMasters()[layout];
+  return resolveLayoutMaster(deck, layout);
 }
 
-/** The prompt copy a fresh placeholder is created holding. */
-const PROMPT_COPY: Record<'title' | 'body', string> = {
-  title: 'Slide title',
-  body: 'Body text',
-};
-
 /** Does this box still hold nothing but the prompt it was created with? */
-function isUnwrittenPrompt(element: SlideElement, slot: 'title' | 'body'): boolean {
+function isUnwrittenPrompt(element: SlideElement, slot: LayoutSlot): boolean {
   if (element.type !== 'text') return false;
   const written = element.html
     .replace(/<[^>]*>/g, '')
     .replace(/&nbsp;/g, ' ')
     .replace(/[\s ​⁠]+/g, ' ')
     .trim();
-  return written === '' || written === PROMPT_COPY[slot];
+  return written === '' || written === promptCopy(slot);
 }
 
-function textForSlot(slide: Slide, slot: 'title' | 'body'): TextEl | undefined {
+/**
+ * The slide's box for a slot: the one recorded as standing in it, else -- for
+ * the title and body of decks made before slots were recorded -- an unrecorded
+ * box with that role.
+ */
+function textForSlot(slide: Slide, slot: LayoutSlot): TextEl | undefined {
+  const recorded = slide.elements.find((element): element is TextEl => element.type === 'text'
+    && element.layoutPlaceholder === slot);
+  if (recorded || (slot !== 'title' && slot !== 'body')) return recorded;
   return slide.elements.find((element): element is TextEl => element.type === 'text'
-    && (element.layoutPlaceholder === slot || element.class.includes(roleClass(slot))));
+    && !element.layoutPlaceholder && element.class.includes(roleClass(slot)));
 }
 
 function copyPlaceholderPresentation(
@@ -166,7 +256,7 @@ function decorationCopy(slideId: string, source: SlideElement, order: number): S
  */
 export function syncSlideWithLayoutMaster(
   slide: Slide,
-  layout: FixedLayout,
+  layout: string,
   master: LayoutMaster,
   options: { forceBackground?: boolean; replaceStyle?: boolean } = {},
 ): void {
@@ -182,7 +272,7 @@ export function syncSlideWithLayoutMaster(
     if (!target) {
       target = structuredClone(source);
       target.id = `text-${slide.id}-${source.layoutPlaceholder}`;
-      target.html = source.layoutPlaceholder === 'title' ? 'Slide title' : 'Body text';
+      target.html = promptCopy(source.layoutPlaceholder);
       slide.elements.push(target);
     }
     copyPlaceholderPresentation(target, source, options.replaceStyle === true);
@@ -198,7 +288,7 @@ export function syncSlideWithLayoutMaster(
   // clearing the class, or a title that genuinely reads "Slide title".
   const slots = new Set(master.elements
     .map((element) => (element.type === 'text' ? element.layoutPlaceholder : undefined))
-    .filter((slot): slot is 'title' | 'body' => slot !== undefined));
+    .filter((slot): slot is LayoutSlot => slot !== undefined));
   slide.elements = slide.elements.filter((element) => {
     const slot = layoutSlotOf(element);
     if (slot === null || slots.has(slot)) return true;
@@ -235,7 +325,7 @@ export function syncSlideWithLayoutMaster(
 }
 
 /** The layout slot a text box stands in, by its placeholder record or its role class. */
-export function layoutSlotOf(element: SlideElement): 'title' | 'body' | null {
+export function layoutSlotOf(element: SlideElement): LayoutSlot | null {
   if (element.type !== 'text') return null;
   if (element.layoutPlaceholder) return element.layoutPlaceholder;
   if (element.class.includes(roleClass('title'))) return 'title';
@@ -255,15 +345,21 @@ export function layoutGeometryFor(
   slide: Slide,
   element: SlideElement,
   masters: Deck['layoutMasters'] = null,
+  customLayouts: Deck['customLayouts'] = [],
 ): Pick<TextEl, 'x' | 'y' | 'w' | 'h' | 'rot' | 'align' | 'valign'> | null {
   const slot = layoutSlotOf(element);
   if (!slot) return null;
-  const layout = (slide.layout ?? 'freeform') as FixedLayout;
+  const deck: LayoutSource = { layoutMasters: masters, customLayouts };
   const all = masters ?? defaultLayoutMasters();
   const slotIn = (master: LayoutMaster): TextEl | undefined => master.elements.find(
     (candidate): candidate is TextEl => candidate.type === 'text' && candidate.layoutPlaceholder === slot,
   );
-  const source = slotIn(all[layout]) ?? slotIn(all.standard);
+  // The slide's own layout first; one of the deck's layouts then falls back
+  // to the built-in it was made from, and anything else to Title + Body.
+  const base = customLayout(deck, slide.layout)?.basedOn;
+  const source = slotIn(resolveLayoutMaster(deck, slide.layout))
+    ?? (base ? slotIn(all[base]) : undefined)
+    ?? slotIn(all.standard);
   if (!source) return null;
   const { x, y, w, h, rot, align, valign } = source;
   return { x, y, w, h, rot, align, valign };
@@ -274,8 +370,9 @@ export function elementFollowsLayout(
   slide: Slide,
   element: SlideElement,
   masters: Deck['layoutMasters'] = null,
+  customLayouts: Deck['customLayouts'] = [],
 ): boolean {
-  const target = layoutGeometryFor(slide, element, masters);
+  const target = layoutGeometryFor(slide, element, masters, customLayouts);
   if (!target || element.type !== 'text') return false;
   return (['x', 'y', 'w', 'h', 'rot', 'align', 'valign'] as const)
     .every((key) => element[key] === target[key]);
@@ -292,22 +389,28 @@ export function realignElementToLayout(
   slide: Slide,
   elementId: string,
   masters: Deck['layoutMasters'] = null,
+  customLayouts: Deck['customLayouts'] = [],
 ): boolean {
   const element = slide.elements.find((candidate) => candidate.id === elementId);
   if (!element || element.type !== 'text') return false;
-  const target = layoutGeometryFor(slide, element, masters);
+  const target = layoutGeometryFor(slide, element, masters, customLayouts);
   if (!target) return false;
-  if (elementFollowsLayout(slide, element, masters)) return false;
+  if (elementFollowsLayout(slide, element, masters, customLayouts)) return false;
   Object.assign(element, target);
   return true;
 }
 
-/** Synchronize every slide that uses one of the fixed layouts. */
+/**
+ * Synchronize every slide with its layout, built-in or the deck's own. A
+ * deck still on the legacy built-ins (no masters, no layouts of its own) is
+ * left alone, as before.
+ */
 export function syncDeckWithLayoutMasters(deck: Deck): void {
-  if (!deck.layoutMasters) return;
+  if (!deck.layoutMasters && (deck.customLayouts?.length ?? 0) === 0) return;
   for (const slide of deck.slides) {
-    const layout = (slide.layout ?? 'freeform') as FixedLayout;
-    syncSlideWithLayoutMaster(slide, layout, deck.layoutMasters[layout]);
+    if (!slide.layout && !deck.layoutMasters) continue;
+    const layout = resolvedLayoutId(deck, slide.layout ?? 'freeform');
+    syncSlideWithLayoutMaster(slide, layout, resolveLayoutMaster(deck, layout));
   }
 }
 
@@ -320,9 +423,12 @@ export function syncDeckWithLayoutMasters(deck: Deck): void {
  * text box -- no styling, no new boxes, no decorations, no background. A slide
  * on the freeform layout has nothing to align to. Returns how many boxes moved.
  */
-export function realignSlideToLayout(slide: Slide, masters: Deck['layoutMasters'] = null): number {
-  const layout = (slide.layout ?? 'freeform') as FixedLayout;
-  const master = masters?.[layout] ?? defaultLayoutMasters()[layout];
+export function realignSlideToLayout(
+  slide: Slide,
+  masters: Deck['layoutMasters'] = null,
+  customLayouts: Deck['customLayouts'] = [],
+): number {
+  const master = resolveLayoutMaster({ layoutMasters: masters, customLayouts }, slide.layout);
   let moved = 0;
   for (const source of master.elements) {
     if (source.type !== 'text' || !source.layoutPlaceholder) continue;

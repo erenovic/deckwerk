@@ -154,7 +154,7 @@ const SLIDE_PROPERTIES: PropertyDoc[] = [
   { path: 'background.color', type: 'CSS color|null', description: 'Slide background color; null uses the theme.', example: '#101218' },
   { path: 'background.image', type: 'deck-relative asset path|null', description: 'Slide background image.', example: 'assets/background.png' },
   { path: 'notes', type: 'string', description: 'Speaker notes.', example: 'Emphasize the scaling result.' },
-  { path: 'layout', type: 'enum', values: ['freeform', 'standard', 'title'], description: 'Slide layout identity.', example: 'standard' },
+  { path: 'layout', type: 'string', description: "Slide layout identity: 'freeform', 'standard', 'title', or the id of one of the deck's own layouts (customLayouts).", example: 'standard' },
   { path: 'morphFromPrevious', type: 'boolean', description: 'Animate from the preceding slide.', example: true },
   { path: 'morphDuration', type: 'number 100..5000', description: `${MORPH_NAME} duration from the preceding slide, in milliseconds.`, example: 900 },
   { path: 'skipped', type: 'boolean', description: 'Keep the slide but skip it during presentation.', example: false },

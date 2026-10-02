@@ -541,6 +541,7 @@ export function rewriteAssetReferences(
       : Object.fromEntries(
         Object.entries(deck.layoutMasters).map(([name, master]) => [name, rewriteSlide(master)]),
       ) as Deck['layoutMasters'],
+    customLayouts: (deck.customLayouts ?? []).map(rewriteSlide),
   };
 }
 

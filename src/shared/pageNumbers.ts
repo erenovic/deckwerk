@@ -1,4 +1,5 @@
 import { PageNumbersSchema, type Deck, type PageNumbers } from './deck.js';
+import { isTitleLayout } from './layoutMasters.js';
 
 /**
  * What a slide's page number reads, from the deck's numbering settings.
@@ -26,7 +27,7 @@ export function pageNumberLabel(deck: Deck, slideIndex: number): string | null {
     if (index <= slideIndex) ordinal = total;
   }
   if (settings.hideOnFirst && ordinal === 1) return null;
-  if (settings.hideOnTitle && slide.layout === 'title') return null;
+  if (settings.hideOnTitle && isTitleLayout(deck, slide.layout)) return null;
   const number = settings.startAt + ordinal - 1;
   return settings.format === 'number-of-total'
     ? `${number} / ${settings.startAt + total - 1}`
