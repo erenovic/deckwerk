@@ -81,6 +81,7 @@ import type { ImportedAsset } from '@shared/ipc.js';
 import { newComment, openCommentsPopover, openCount } from './comments.js';
 import { reportRenderDivergences } from './renderInvariants.js';
 import { isWebBridgeAction } from '@shared/webBridge.js';
+import { selectedGroups, selectionContext, unitGroup, unitIds } from '@shared/groups.js';
 import { reportSelectionViolations } from './selectionInvariants.js';
 import {
   HANDLES,
@@ -663,6 +664,8 @@ type ResizeOrigin = Rect & {
   control?: { x: number; y: number } | null;
 };
 
+type RotateOrigin = { x: number; y: number; w: number; h: number; rot: number; control?: XY | null };
+
 type DragMode =
   | { kind: 'none' }
   | { kind: 'move'; startCanvas: { x: number; y: number }; origin: Map<string, MoveOrigin> }
@@ -672,8 +675,11 @@ type DragMode =
       startCanvas: { x: number; y: number };
       origin: Rect;
       origins: Map<string, ResizeOrigin>;
+      /** The object whose handle was taken; empty for a group's frame. */
       elementId: string;
       aspect: number;
+      /** Each member of a selected group, mapped to its group's frame. */
+      frames: Map<string, Rect>;
     }
   | {
       kind: 'table-column-resize';
@@ -690,6 +696,8 @@ type DragMode =
       originRotation: number;
       lastAngle: number;
       accumulatedAngle: number;
+      /** A group turning about its frame's centre: where each member started. */
+      members?: Map<string, RotateOrigin>;
     }
   | {
       kind: 'mask-pan';
@@ -873,7 +881,14 @@ export class EditorCanvas {
     selectWord: boolean;
   } | null = null;
   /** A Shift-press on a selected object: dropped from the selection only if no drag follows. */
-  private pendingShiftDeselect: string | null = null;
+  private pendingShiftDeselect: string[] | null = null;
+  /** A press on a wholly selected group: goes into it only if no drag follows. */
+  private pendingDrill: string[] | null = null;
+  /**
+   * The last click went into a group. Its double-click must not also open
+   * the text it landed on: going in and editing are separate steps.
+   */
+  private clickDrilled = false;
   /** The latest pointer sample of a move drag, replayed when Shift changes mid-drag. */
   private lastMovePointer: PointerEvent | null = null;
 
@@ -1836,11 +1851,47 @@ export class EditorCanvas {
       }
     }
 
+    // A selected group is one object to the author: one frame with handles
+    // around all of it, its pieces outlined lightly inside.
+    const framed = new Map<string, string>();
+    for (const group of selectedGroups(elements, selection)) {
+      const members = elements.filter((el) => (el.groups ?? []).includes(group));
+      for (const member of members) framed.set(member.id, group);
+      const rect = unionRect(members.map(rotatedBounds));
+      const frame = document.createElement('div');
+      frame.className = 'group-frame';
+      frame.dataset.groupId = group;
+      frame.style.left = `${rect.x}px`;
+      frame.style.top = `${rect.y}px`;
+      frame.style.width = `${rect.w}px`;
+      frame.style.height = `${rect.h}px`;
+      frame.style.setProperty('--inv', String(1 / this.scale));
+      for (const name of HANDLE_NAMES) {
+        const h = document.createElement('div');
+        h.className = `handle handle-${name}`;
+        h.dataset.handle = name;
+        h.dataset.groupId = group;
+        frame.appendChild(h);
+      }
+      frag.appendChild(frame);
+    }
+
     for (const el of elements) {
       if (el.layoutMasterId) continue;
       if (!selection.has(el.id)) continue;
       const box = document.createElement('div');
       box.className = `sel-box${this.maskingId === el.id ? ' masking' : ''}`;
+      if (framed.has(el.id)) {
+        box.classList.add('group-member');
+        box.style.left = `${el.x}px`;
+        box.style.top = `${el.y}px`;
+        box.style.width = `${el.w}px`;
+        box.style.height = `${el.h}px`;
+        if (el.rot) box.style.transform = `rotate(${el.rot}deg)`;
+        box.style.setProperty('--inv', String(1 / this.scale));
+        frag.appendChild(box);
+        continue;
+      }
       if (el.type === 'text' && el.table) box.classList.add('table-selection');
       box.style.left = `${el.x}px`;
       box.style.top = `${el.y}px`;
@@ -2237,6 +2288,42 @@ export class EditorCanvas {
     return isSecond;
   }
 
+  /** Where every selected object starts a resize from. */
+  private resizeOrigins(): Map<string, ResizeOrigin> {
+    const origins = new Map<string, ResizeOrigin>();
+    for (const selected of this.store.selectedElements()) {
+      origins.set(selected.id, {
+        x: selected.x,
+        y: selected.y,
+        w: selected.w,
+        h: selected.h,
+        rot: selected.rot,
+        ...((selected.type === 'image' || selected.type === 'video')
+          ? { sourceBox: selected.sourceBox ? { ...selected.sourceBox } : null }
+          : {}),
+        ...((selected.type === 'shape' && selected.control)
+          ? { control: { ...selected.control } }
+          : {}),
+      });
+    }
+    return origins;
+  }
+
+  /**
+   * The frame of each selected group, keyed by member. A resize scales a
+   * group within its own frame, the way each loose object scales within its
+   * own box, so a group never comes apart when it is sized.
+   */
+  private groupFrames(elements: readonly SlideElement[]): Map<string, Rect> {
+    const frames = new Map<string, Rect>();
+    for (const group of selectedGroups(elements, this.store.get().selection)) {
+      const members = elements.filter((el) => (el.groups ?? []).includes(group));
+      const frame = unionRect(members.map(rotatedBounds));
+      for (const member of members) frames.set(member.id, frame);
+    }
+    return frames;
+  }
+
   private onPointerDown(ev: PointerEvent): void {
     if (ev.button !== 0) return;
     // Authored links are interactive slide content. Let Chromium activate the
@@ -2251,6 +2338,7 @@ export class EditorCanvas {
     if (target.closest('.welcome-screen, .zoom-controls, .notes-toggle, .notes-drawer, .find-bar')) return;
     const slide = this.store.slide;
     if (!slide) return;
+    this.clickDrilled = false;
     // A press that reaches the canvas was not on a live page (the frame keeps
     // those), so it is the implicit "back to editing".
     this.endWebLive();
@@ -2297,6 +2385,48 @@ export class EditorCanvas {
           !mediaMaskContainsPoint(mask, point))
       ) {
         this.toggleMaskMode(null);
+      }
+    }
+
+    // A selected group's frame: its handles scale, or with the gesture
+    // modifier turn, the whole group as one object.
+    const frameHandle = target.closest<HTMLElement>('.group-frame .handle[data-group-id]');
+    if (frameHandle?.dataset.groupId && frameHandle.dataset.handle) {
+      const group = frameHandle.dataset.groupId;
+      const members = slide.elements.filter((el) => (el.groups ?? []).includes(group));
+      if (members.length > 0) {
+        const frame = unionRect(members.map(rotatedBounds));
+        if (commandModifier(ev)) {
+          const center = { x: frame.x + frame.w / 2, y: frame.y + frame.h / 2 };
+          this.store.beginTransaction('Rotate group');
+          this.host.classList.add('is-rotating');
+          this.drag = {
+            kind: 'rotate',
+            elementId: '',
+            startCanvas: point,
+            center,
+            originRotation: 0,
+            lastAngle: Math.atan2(point.y - center.y, point.x - center.x),
+            accumulatedAngle: 0,
+            members: new Map(members.map((el) => [el.id, {
+              x: el.x, y: el.y, w: el.w, h: el.h, rot: el.rot,
+              control: el.type === 'shape' && el.control ? { ...el.control } : null,
+            }])),
+          };
+          return;
+        }
+        this.store.beginTransaction('Move or resize objects');
+        this.drag = {
+          kind: 'resize',
+          handle: frameHandle.dataset.handle,
+          startCanvas: point,
+          origin: frame,
+          origins: this.resizeOrigins(),
+          elementId: '',
+          aspect: frame.w / frame.h,
+          frames: this.groupFrames(slide.elements),
+        };
+        return;
       }
     }
 
@@ -2391,30 +2521,15 @@ export class EditorCanvas {
               ? { x: 0, y: 0, w: el.w, h: el.h }
               : null;
         }
-        const origins = new Map<string, ResizeOrigin>();
-        for (const selected of this.store.selectedElements()) {
-          origins.set(selected.id, {
-            x: selected.x,
-            y: selected.y,
-            w: selected.w,
-            h: selected.h,
-            rot: selected.rot,
-            ...((selected.type === 'image' || selected.type === 'video')
-              ? { sourceBox: selected.sourceBox ? { ...selected.sourceBox } : null }
-              : {}),
-            ...((selected.type === 'shape' && selected.control)
-              ? { control: { ...selected.control } }
-              : {}),
-          });
-        }
         this.drag = {
           kind: 'resize',
           handle,
           startCanvas: point,
           origin: { x: el.x, y: el.y, w: el.w, h: el.h },
-          origins,
+          origins: this.resizeOrigins(),
           elementId: el.id,
           aspect: el.w / el.h,
+          frames: this.groupFrames(slide.elements),
         };
         return;
       }
@@ -2450,18 +2565,29 @@ export class EditorCanvas {
     const hit = this.hitTest(point);
     if (hit) {
       const selection = this.store.get().selection;
+      // A click picks a whole group unless the author has gone into it.
+      const context = selectionContext(slide.elements, selection);
+      const group = unitGroup(hit, context);
+      const unit = unitIds(slide.elements, hit, context);
+      const unitSelected = unit.every((id) => selection.has(id));
       this.pendingTextEdit = !ev.shiftKey
+        && !group
         && selection.has(hit.id)
         && (hit.type === 'text' || hit.type === 'html')
         ? { elementId: hit.id, clientX: ev.clientX, clientY: ev.clientY, selectWord: secondClick }
         : null;
-      if (!selection.has(hit.id)) {
-        this.store.select([hit.id], ev.shiftKey);
+      // Clicking a selected group again goes into it, as in design tools,
+      // picking the piece under the pointer one level down.
+      this.pendingDrill = !ev.shiftKey && group && unitSelected && selection.size === unit.length
+        ? unitIds(slide.elements, hit, group)
+        : null;
+      if (!unitSelected) {
+        this.store.selectUnit(unit, ev.shiftKey);
       } else if (ev.shiftKey) {
         // Shift on a selected object either drops it from the selection (a
         // click) or starts a constrained drag of the selection (a drag).
         // Which one is only known at pointer-up.
-        this.pendingShiftDeselect = hit.id;
+        this.pendingShiftDeselect = unit;
       }
       const origin = new Map<string, MoveOrigin>();
       for (const el of this.store.selectedElements()) {
@@ -2772,7 +2898,10 @@ export class EditorCanvas {
         this.store.updateSelected((el) => {
           const origin = drag.origins.get(el.id);
           if (!origin) return;
-          const resized = resizeByScale(origin, edges, scaleX, scaleY, centered);
+          const frame = drag.frames.get(el.id);
+          const resized = frame
+            ? resizeInFrame(origin, frame, resizeByScale({ ...frame, rot: 0 }, edges, scaleX, scaleY, centered))
+            : resizeByScale(origin, edges, scaleX, scaleY, centered);
           el.x = Math.round(resized.x);
           el.y = Math.round(resized.y);
           el.w = Math.max(1, Math.round(resized.w));
@@ -2791,7 +2920,9 @@ export class EditorCanvas {
             };
           }
           if (el.type === 'shape' && origin.control) {
-            const control = resizePointByScale(origin.control, origin, resized, scaleX, scaleY);
+            const control = frame
+              ? pointInFrame(origin.control, frame, resizeByScale({ ...frame, rot: 0 }, edges, scaleX, scaleY, centered))
+              : resizePointByScale(origin.control, origin, resized, scaleX, scaleY);
             el.control = { x: Math.round(control.x), y: Math.round(control.y) };
           }
         });
@@ -2816,6 +2947,33 @@ export class EditorCanvas {
         // free-rotation gesture.
         if (ev.shiftKey) rotation = Math.round(rotation / 15) * 15;
         rotation = Math.round(rotation * 10) / 10;
+        const members = drag.members;
+        if (members) {
+          // Every piece turns by the same angle and swings about the frame's
+          // centre, so the group keeps its shape.
+          const radians = (rotation * Math.PI) / 180;
+          const turn = (p: XY): XY => {
+            const dx = p.x - drag.center.x;
+            const dy = p.y - drag.center.y;
+            return {
+              x: drag.center.x + dx * Math.cos(radians) - dy * Math.sin(radians),
+              y: drag.center.y + dx * Math.sin(radians) + dy * Math.cos(radians),
+            };
+          };
+          this.store.updateSelected((target) => {
+            const origin = members.get(target.id);
+            if (!origin) return;
+            const centre = turn({ x: origin.x + origin.w / 2, y: origin.y + origin.h / 2 });
+            target.x = Math.round(centre.x - origin.w / 2);
+            target.y = Math.round(centre.y - origin.h / 2);
+            target.rot = Math.round((origin.rot + rotation) * 10) / 10;
+            if (target.type === 'shape' && origin.control) {
+              const control = turn(origin.control);
+              target.control = { x: Math.round(control.x), y: Math.round(control.y) };
+            }
+          });
+          break;
+        }
         this.store.updateSelected((target) => {
           if (target.id === drag.elementId) target.rot = rotation;
         });
@@ -2917,6 +3075,7 @@ export class EditorCanvas {
     }
     const textEdit = !this.dragStarted ? this.pendingTextEdit : null;
     const shiftDeselect = !this.dragStarted ? this.pendingShiftDeselect : null;
+    const drill = !this.dragStarted ? this.pendingDrill : null;
     if (this.drag.kind === 'marquee' && this.marquee) {
       const slide = this.store.slide;
       if (slide) {
@@ -2924,13 +3083,18 @@ export class EditorCanvas {
         const hits = slide.elements
           // Locked master copies are not selectable (see selectAllElements).
           .filter((e) => !e.layoutMasterId && intersects(rotatedBounds(e), box))
-          .map((e) => e.id);
-        if (hits.length > 0) this.store.select(hits, ev.shiftKey);
+          // Touching any piece of a group takes the whole group.
+          .flatMap((e) => unitIds(slide.elements, e, null));
+        if (hits.length > 0) this.store.select([...new Set(hits)], ev.shiftKey);
       }
     }
     this.host.releasePointerCapture?.(ev.pointerId);
     this.endDrag();
-    if (shiftDeselect) this.store.select([shiftDeselect], true);
+    if (shiftDeselect) this.store.selectUnit(shiftDeselect, true);
+    if (drill) {
+      this.store.select(drill);
+      this.clickDrilled = true;
+    }
     if (textEdit) this.beginTextEdit(textEdit.elementId, textEdit, textEdit.selectWord);
   }
 
@@ -2946,6 +3110,7 @@ export class EditorCanvas {
     this.marquee = null;
     this.pendingTextEdit = null;
     this.pendingShiftDeselect = null;
+    this.pendingDrill = null;
     this.lastMovePointer = null;
 
     // Deliberately *not* a full render. Redrawing the slide layer here would
@@ -3007,7 +3172,10 @@ export class EditorCanvas {
     if (!this.contextActions) return;
 
     const hit = this.hitTest(this.toCanvas(ev as PointerEvent));
-    if (hit && !this.store.get().selection.has(hit.id)) this.store.select([hit.id]);
+    const slide = this.store.slide;
+    if (hit && slide && !this.store.get().selection.has(hit.id)) {
+      this.store.select(unitIds(slide.elements, hit, selectionContext(slide.elements, this.store.get().selection)));
+    }
 
     const items = this.contextActions(hit);
     if (items.length === 0) return;
@@ -3088,6 +3256,14 @@ export class EditorCanvas {
     if (!slide) return;
     const hit = this.hitTest(this.toCanvas(ev as PointerEvent));
     if (!hit) return;
+    if (this.clickDrilled) {
+      this.clickDrilled = false;
+      return;
+    }
+    // A double-click on a group that was not selected yet: the first click
+    // took the group, and the second went in only if it was the whole
+    // selection. Either way it stops at the group, never inside its text.
+    if (unitGroup(hit, selectionContext(slide.elements, this.store.get().selection))) return;
 
     if (hit.type === 'text' || hit.type === 'html') {
       this.beginTextEdit(hit.id);
@@ -7170,4 +7346,23 @@ function resizePointByScale(
     x: resized.x + resized.w / 2 + localX * cos - localY * sin,
     y: resized.y + resized.h / 2 + localX * sin + localY * cos,
   };
+}
+
+/** Where a point inside `frame` lands once the frame becomes `resized`. */
+function pointInFrame(point: XY, frame: Rect, resized: Rect): XY {
+  return {
+    x: resized.x + (point.x - frame.x) * (resized.w / frame.w),
+    y: resized.y + (point.y - frame.y) * (resized.h / frame.h),
+  };
+}
+
+/**
+ * A group member's box once its group's frame becomes `resized`: its centre
+ * keeps its place within the frame and its size takes the frame's scale.
+ */
+function resizeInFrame(origin: ResizeOrigin, frame: Rect, resized: Rect): Rect {
+  const centre = pointInFrame({ x: origin.x + origin.w / 2, y: origin.y + origin.h / 2 }, frame, resized);
+  const w = origin.w * (resized.w / frame.w);
+  const h = origin.h * (resized.h / frame.h);
+  return { x: centre.x - w / 2, y: centre.y - h / 2, w, h };
 }

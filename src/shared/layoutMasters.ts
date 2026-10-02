@@ -240,6 +240,8 @@ function decorationCopy(slideId: string, source: SlideElement, order: number): S
   copy.layoutMasterId = source.id;
   copy.morphId = null;
   copy.lineageId = undefined;
+  // Locked copies are never picked, so a master's groups mean nothing on a slide.
+  delete copy.groups;
   copy.z = -10_000 + order;
   copy.class = [...copy.class.filter((name) => name !== 'placeholder'), 'layout-master-element']
     .filter((name, index, names) => names.indexOf(name) === index);

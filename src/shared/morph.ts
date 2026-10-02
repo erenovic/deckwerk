@@ -209,6 +209,8 @@ function geometryFreeSignature(element: SlideElement): string {
     id: _id,
     morphId: _morphId,
     lineageId: _lineageId,
+    // Grouping is how the author handles objects, not how they look.
+    groups: _groups,
     z: _z,
     x: _x,
     y: _y,
@@ -230,6 +232,8 @@ function visualSignature(element: SlideElement): string {
     id: _id,
     morphId: _morphId,
     lineageId: _lineageId,
+    // Grouping is how the author handles objects, not how they look.
+    groups: _groups,
     z: _z,
     ...visual
   } = element;

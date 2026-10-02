@@ -13,6 +13,7 @@ import { installLayouts, placeholderFor, tileBodyPlaceholders } from '../src/ren
 import { applySlideLayout } from '../src/renderer/editor/slideLayouts.js';
 import { EditorCanvas } from '../src/renderer/editor/canvas.js';
 import { EditorStore } from '../src/renderer/editor/store.js';
+import { groupChildren, selectionContext, unitIds } from '../src/shared/groups.js';
 import { findRenderDivergences, formatDivergence } from '../src/renderer/editor/renderInvariants.js';
 import { installCanvasDomShims } from './support/canvasHarness.js';
 import { extraFuzzSeeds } from './support/fuzzSeeds.js';
@@ -116,6 +117,19 @@ function buildOps(store: EditorStore, canvas: EditorCanvas, random: () => number
     { name: 'clear selection', run: () => store.clearSelection() },
     { name: 'select all elements', run: () => store.selectAllElements() },
     { name: 'duplicate selection', run: () => store.duplicateSelection() },
+    { name: 'group selection', run: () => store.groupSelected() },
+    { name: 'ungroup selection', run: () => store.ungroupSelected() },
+    {
+      name: 'click a piece (group-aware)',
+      run: () => {
+        const elements = store.slide?.elements.filter((el) => !el.layoutMasterId) ?? [];
+        if (elements.length === 0) return;
+        const all = store.slide!.elements;
+        const target = pick(elements);
+        store.selectUnit(unitIds(all, target, selectionContext(all, store.get().selection)), random() < 0.3);
+      },
+    },
+    { name: 'step out of group', run: () => store.stepOutOfGroup() },
     { name: 'delete selection', run: () => store.deleteSelection() },
     {
       name: 'move selection',
@@ -456,6 +470,12 @@ function checkInvariants(
   const present = new Set(ids);
   for (const selected of state.selection) {
     if (!present.has(selected)) problems.push(`selection holds removed element ${selected}`);
+  }
+
+  // 4b. Every group holds at least two pieces. A group of one is a frame
+  //     around a single object that no gesture can take apart cleanly.
+  for (const group of new Set(slide.elements.flatMap((el) => el.groups ?? []))) {
+    if (groupChildren(slide.elements, group).length < 2) problems.push(`group ${group} holds fewer than two pieces`);
   }
 
   // 5. Geometry stays finite. A NaN width reaches CSS as garbage and the

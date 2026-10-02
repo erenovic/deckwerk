@@ -11,6 +11,7 @@ import {
 } from './deck.js';
 import { renameRetiredFields } from './fieldAliases.js';
 import { makeId } from './geometry.js';
+import { pruneGroups, remapCopiedGroups } from './groups.js';
 import type { ImportedAsset } from './ipc.js';
 
 /**
@@ -174,6 +175,10 @@ export function remapElementIds(
     el.id = id;
     el.morphId = null;
   }
+  // A pasted group is a group of its own, never another membership of the
+  // one it was copied from; whatever is left holding one piece dissolves.
+  remapCopiedGroups(elements, elements, () => makeId('group'), false);
+  pruneGroups(elements);
   for (const entry of timeline) {
     entry.id = makeId('t');
     entry.action.target = remap.get(entry.action.target) ?? entry.action.target;

@@ -807,6 +807,17 @@ body.panel-resizing iframe { pointer-events: none; }
   outline-offset: 0;
 }
 
+/* A selected group: one frame carries the handles; its pieces are traced
+   lightly inside it so the author can see what the group holds. */
+.group-frame {
+  position: absolute;
+  outline: calc(1.5px * var(--inv)) solid var(--accent);
+}
+
+.sel-box.group-member {
+  outline: calc(1px * var(--inv)) dashed color-mix(in srgb, var(--accent) 65%, transparent);
+}
+
 .handle {
   position: absolute;
   width: calc(9px * var(--inv));
@@ -4575,6 +4586,11 @@ button.ghost:hover:not(:disabled) { color: var(--text); background: transparent;
 .build-element-row[data-kind="shape-line"]::before { content: '╱'; }
 .build-element-row[data-kind="shape-arrow"]::before { content: '→'; }
 .build-element-row[data-kind="shape-path"]::before { content: '∿'; }
+.build-element-row[data-kind="group"]::before { content: '⧉'; }
+/* A group's layers list: pieces of a group inside it are indented under it. */
+.group-member-row { padding-left: calc(26px + var(--depth, 0) * 14px); }
+.group-member-row::before { left: calc(8px + var(--depth, 0) * 14px); }
+.group-actions { margin-bottom: 10px; }
 /* The steps that animate this element, drawn as the same orange badge the
    canvas uses, from a data attribute so the row's text stays its name. */
 .build-element-row[data-steps]::after {

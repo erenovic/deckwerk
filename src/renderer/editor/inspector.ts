@@ -14,6 +14,14 @@ import type {
 } from './canvas.js';
 import { type AlignMode, alignElements } from './align.js';
 import { sameDeckIgnoringNotes, type EditorStore } from './store.js';
+import { describeElement, elementKind, renderElementLabel } from './elementLabel.js';
+import {
+  groupChildren,
+  groupMemberIds,
+  selectedGroups,
+  selectionContext,
+  type GroupChild,
+} from '@shared/groups.js';
 import { LAYOUT_LABELS, applySlideLayout, type SlideLayout } from './slideLayouts.js';
 import {
   elementFollowsLayout,
@@ -347,8 +355,11 @@ export class Inspector {
       this.appendMorph();
       return;
     }
+    const listed = this.listedGroup();
     if (selected.length > 1) {
-      this.host.appendChild(sectionTitle(`${selected.length} elements`));
+      this.host.appendChild(sectionTitle(listed?.whole ? 'group' : `${selected.length} elements`));
+      if (listed) this.host.appendChild(this.groupSection(listed.id, listed.whole));
+      if (this.store.canGroupSelection()) this.host.appendChild(this.groupButtonRow());
       this.host.appendChild(this.alignSection());
       this.host.appendChild(this.geometrySection(selected));
       const first = selected[0];
@@ -381,9 +392,101 @@ export class Inspector {
     } else {
       this.host.appendChild(sectionTitle(el.type));
     }
+    if (listed) this.host.appendChild(this.groupSection(listed.id, listed.whole));
     this.host.appendChild(this.geometrySection(selected));
     const specific = this.typeSection(el);
     if (specific) this.host.appendChild(specific);
+  }
+
+  /**
+   * The group whose pieces the panel lists: one selected whole, or the one
+   * the author has gone into, with their selection lit up in it.
+   */
+  private listedGroup(): { id: string; whole: boolean } | null {
+    const slide = this.store.slide;
+    if (!slide) return null;
+    const { selection } = this.store.get();
+    const whole = selectedGroups(slide.elements, selection);
+    if (whole.length === 1 && groupMemberIds(slide.elements, whole[0]).length === selection.size) {
+      return { id: whole[0], whole: true };
+    }
+    const context = selectionContext(slide.elements, selection);
+    return context ? { id: context, whole: false } : null;
+  }
+
+  /**
+   * A group's pieces as a layers list, frontmost first, groups inside it
+   * indented under their own row. Picking a row selects that piece on the
+   * canvas, which is also how the author goes into the group.
+   */
+  private groupSection(groupId: string, whole: boolean): HTMLElement {
+    const slide = this.store.slide!;
+    const { selection } = this.store.get();
+    const z = new Map(slide.elements.map((element) => [element.id, element.z]));
+    const byId = new Map(slide.elements.map((element) => [element.id, element]));
+    const idsOf = (child: GroupChild) => (child.kind === 'group' ? child.memberIds : [child.id]);
+    const front = (child: GroupChild) => Math.max(...idsOf(child).map((id) => z.get(id) ?? 0));
+    const count = groupMemberIds(slide.elements, groupId).length;
+    const { section, content } = optionSection(
+      whole ? 'Objects in group' : 'In this group',
+      'build-element-list group-member-list',
+      `${count} object${count === 1 ? '' : 's'}`,
+    );
+    const addRows = (parent: string, depth: number) => {
+      const children = groupChildren(slide.elements, parent).sort((a, b) => front(b) - front(a));
+      for (const child of children) {
+        const ids = idsOf(child);
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'build-element-row group-member-row';
+        row.style.setProperty('--depth', String(depth));
+        row.classList.toggle('selected', ids.every((id) => selection.has(id)));
+        if (child.kind === 'group') {
+          row.dataset.kind = 'group';
+          row.dataset.groupId = child.id;
+          const label = document.createElement('span');
+          label.className = 'element-label-text';
+          label.textContent = `Group · ${ids.length} objects`;
+          row.appendChild(label);
+          row.title = 'Select this group';
+        } else {
+          const element = byId.get(child.id)!;
+          row.dataset.kind = elementKind(element);
+          row.dataset.elementId = element.id;
+          renderElementLabel(row, element);
+          row.title = describeElement(element);
+        }
+        row.addEventListener('click', () => this.store.select(ids));
+        content.appendChild(row);
+        if (child.kind === 'group') addRows(child.id, depth + 1);
+      }
+    };
+    addRows(groupId, 0);
+    if (whole) {
+      const actions = document.createElement('div');
+      actions.className = 'button-row group-actions';
+      const ungroup = document.createElement('button');
+      ungroup.type = 'button';
+      ungroup.textContent = 'Ungroup';
+      ungroup.title = 'Take this group apart (⇧⌘G)';
+      ungroup.addEventListener('click', () => this.store.ungroupSelected());
+      actions.appendChild(ungroup);
+      section.appendChild(actions);
+    }
+    return section;
+  }
+
+  /** "Group" for a selection that can become one (⌘G). */
+  private groupButtonRow(): HTMLElement {
+    const actions = document.createElement('div');
+    actions.className = 'button-row group-actions';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = 'Group';
+    button.title = 'Group these objects so they move together (⌘G)';
+    button.addEventListener('click', () => this.store.groupSelected());
+    actions.appendChild(button);
+    return actions;
   }
 
   private appendMorph(): void {

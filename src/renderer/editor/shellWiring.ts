@@ -373,6 +373,13 @@ export function bindEditorKeys(deps: ShellDeps, clipboard: ClipboardActions): vo
       duplicateSelection(store);
       return;
     }
+    // ⌘G groups the selection, ⇧⌘G takes the selected groups apart.
+    if (mod && !e.altKey && e.code === 'KeyG') {
+      e.preventDefault();
+      if (e.shiftKey) store.ungroupSelected();
+      else store.groupSelected();
+      return;
+    }
     // Cmd/Ctrl+Shift+7 / 8 on selected text boxes: their top-level list, the
     // same as the List control. Inside the text the canvas handles them per level.
     if (mod && e.shiftKey && !e.altKey && (e.code === 'Digit7' || e.code === 'Digit8')) {
@@ -448,7 +455,8 @@ export function bindEditorKeys(deps: ShellDeps, clipboard: ClipboardActions): vo
         break;
       }
       case 'Escape':
-        store.clearSelection();
+        // Inside a group, Escape steps out to the group before it deselects.
+        if (!store.stepOutOfGroup()) store.clearSelection();
         break;
       case 'ArrowLeft':
       case 'ArrowRight':
@@ -497,6 +505,11 @@ export function makeContextActions(
       items.push(
         { label: 'Duplicate', action: () => duplicateSelection(store) },
         { label: 'Delete', action: () => store.deleteSelection() },
+      );
+      if (store.canGroupSelection() || store.canUngroupSelection()) items.push('separator');
+      if (store.canGroupSelection()) items.push({ label: 'Group', action: () => store.groupSelected() });
+      if (store.canUngroupSelection()) items.push({ label: 'Ungroup', action: () => store.ungroupSelected() });
+      items.push(
         'separator',
         {
           label: (el.comments?.length ?? 0) > 0 ? 'Comments…' : 'Add comment…',

@@ -218,6 +218,9 @@ const api = {
   onToggleGrid: (fn: () => void): (() => void) => on(IPC.viewToggleGrid, fn),
   /** Tell the application menu whether the grid is showing. */
   setGridState: (shown: boolean): void => ipcRenderer.send(IPC.viewGridState, shown),
+  /** Arrange › Group or Ungroup was chosen from the application menu. */
+  onArrangeCommand: (fn: (command: 'group' | 'ungroup') => void): (() => void) =>
+    on(IPC.arrangeCommand, fn),
   onTrimTarget: (fn: (p: { src: string; elementId: string }) => void): (() => void) =>
     on(IPC.trimOpen, fn),
   onTrimProgress: (fn: (p: TrimProgress) => void): (() => void) =>

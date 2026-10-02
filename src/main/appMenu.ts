@@ -9,11 +9,18 @@ import { IPC } from '@shared/ipc.js';
  * Show Grid's checkmark is owned by the editor window (it remembers the
  * choice), which reports it through `setShowGridChecked`. The ⌘' key is
  * handled by the page itself so it also works while text is being edited;
- * the menu shows it and handles a click.
+ * the menu shows it and handles a click. Arrange's ⌘G and ⇧⌘G are the
+ * page's keys in the same way.
  */
 
 const SHOW_GRID_ID = 'show-grid';
 let showGridChecked = false;
+
+/** The window a menu item was used from, which receives its command. */
+function menuTarget(window: unknown): BrowserWindow | undefined {
+  return (window as BrowserWindow | undefined)
+    ?? BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+}
 
 export function installAppMenu(): void {
   const isMac = process.platform === 'darwin';
@@ -33,11 +40,7 @@ export function installAppMenu(): void {
           registerAccelerator: false,
           // The window the menu was used from; a presenter window has no grid
           // and ignores the message.
-          click: (_item, window) => {
-            const target = (window as BrowserWindow | undefined)
-              ?? BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
-            target?.webContents.send(IPC.viewToggleGrid);
-          },
+          click: (_item, window) => menuTarget(window)?.webContents.send(IPC.viewToggleGrid),
         },
         { type: 'separator' },
         { role: 'reload' },
@@ -49,6 +52,23 @@ export function installAppMenu(): void {
         { role: 'zoomOut' },
         { type: 'separator' },
         { role: 'togglefullscreen' },
+      ],
+    },
+    {
+      label: 'Arrange',
+      submenu: [
+        {
+          label: 'Group',
+          accelerator: 'CmdOrCtrl+G',
+          registerAccelerator: false,
+          click: (_item, window) => menuTarget(window)?.webContents.send(IPC.arrangeCommand, 'group'),
+        },
+        {
+          label: 'Ungroup',
+          accelerator: 'Shift+CmdOrCtrl+G',
+          registerAccelerator: false,
+          click: (_item, window) => menuTarget(window)?.webContents.send(IPC.arrangeCommand, 'ungroup'),
+        },
       ],
     },
     { role: 'windowMenu' },

@@ -149,6 +149,12 @@ new SlideWarnings(el('side'), store, el('canvas'), () => canvas.editingElementId
 canvas.onGridChange = (shown) => window.api.setGridState(shown);
 window.api.setGridState(canvas.isGridVisible());
 window.api.onToggleGrid(() => canvas.toggleGrid());
+// Arrange › Group / Ungroup act on the canvas selection, never mid-edit.
+window.api.onArrangeCommand((command) => {
+  if (canvas.isEditing()) return;
+  if (command === 'group') store.groupSelected();
+  else store.ungroupSelected();
+});
 const inspector = new Inspector(el('inspector'), store);
 new TimelinePanel(el('timeline'), store);
 new HistoryPanel(el('history'), store);

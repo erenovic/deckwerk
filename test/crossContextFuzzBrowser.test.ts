@@ -139,7 +139,7 @@ type OpName =
   | 'click' | 'shift-click' | 'double-click text' | 'double-click image then text'
   | 'type nonce' | 'bold mid-word' | 'escape' | 'click empty' | 'marquee'
   | 'rail hop' | 'rail drag' | 'find next' | 'shift drag' | 'page numbers' | 'theme apply' | 'grid toggle' | 'undo' | 'redo' | 'undo round-trip' | 'delete selection'
-  | 'cmd+a';
+  | 'cmd+a' | 'group toggle';
 
 interface Violation { seed: number; step: number; op: OpName; oracle: string; detail: string }
 
@@ -395,6 +395,7 @@ function chooseOp(next: () => number, pre: CrossState): OpName {
   add('undo round-trip', 1);
   if (pre.editing === null && pre.selection.length > 0) add('delete selection', 2);
   add('cmd+a', 1);
+  if (pre.editing === null && targets.length >= 2) add('group toggle', 3);
   return pick(next, ops);
 }
 
@@ -711,6 +712,34 @@ async function performOp(
     case 'cmd+a':
       await session.chord('a', 'KeyA', 65, MOD, pre.editing !== null ? ['selectAll'] : undefined);
       return 'same';
+    case 'group toggle': {
+      // ⌘G on a selection of separate objects frames them as one group;
+      // ⇧⌘G on a selected group takes the frame away. Either way the
+      // selection and every word on the slide stay as they were.
+      const frames = () => session.cdp.evaluate<number>(
+        `document.querySelectorAll('#canvas .overlay-layer .group-frame').length`);
+      // Grouping needs two objects; take the whole slide when fewer are picked.
+      if (pre.selection.length < 2) await session.chord('a', 'KeyA', 65, MOD);
+      const picked = (await session.state()).selection;
+      const before = await frames();
+      const texts = await session.allTexts();
+      const ungroup = before > 0;
+      await session.chord('g', 'KeyG', 71, ungroup ? MOD | SHIFT : MOD);
+      await wait(100);
+      const after = await frames();
+      if (ungroup ? after !== 0 : after === 0) {
+        flag('routing', `${ungroup ? 'Shift+' : ''}Cmd/Ctrl+G left ${after} group frame(s), had ${before}`);
+      }
+      const post = await session.state();
+      if ([...post.selection].sort().join() !== [...picked].sort().join()) {
+        flag('routing', `grouping changed the selection: ${picked.join()} -> ${post.selection.join()}`);
+      }
+      const now = await session.allTexts();
+      for (const [id, text] of Object.entries(now)) {
+        if (texts[id] !== undefined && texts[id] !== text) flag('routing', `grouping changed ${id}'s text`);
+      }
+      return 'same';
+    }
   }
 }
 

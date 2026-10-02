@@ -389,6 +389,28 @@ export function capabilities(): Capability[] {
       ],
     },
     {
+      id: 'groups',
+      what: 'Objects grouped so they select, move, resize and rotate as one.',
+      when: 'A labelled box, an icon with its caption, a diagram node: pieces that belong together.',
+      notes: [
+        'groups lists the ids of the groups an element belongs to, outermost first; every element naming a group is in it. In authored HTML it is data-groups="outer inner".',
+        'A group needs two or more pieces. Group ids are any unique word; groups nest by listing more than one.',
+        'Members are still ordinary elements: builds, Morph and styling address them one by one.',
+      ],
+      elements: [
+        text('cap-groups-title', 'Pieces that move together', TITLE, { class: ['role-title'] }),
+        {
+          id: 'cap-groups-box', type: 'shape', x: 660, y: 400, w: 600, h: 260, rot: 0, z: 2,
+          opacity: 1, class: [], style: {}, shape: 'rect', fill: '#dbeafe', stroke: '#2563eb',
+          strokeWidth: 4, radius: 16, path: null, pathSize: null, arrowStart: false, arrowEnd: false,
+          groups: ['cap-groups-node'],
+        },
+        text('cap-groups-label', 'Encoder', { x: 700, y: 470, w: 520, h: 120 }, {
+          class: ['role-heading'], align: 'center', valign: 'middle', z: 3, groups: ['cap-groups-node'],
+        }),
+      ],
+    },
+    {
       id: 'background',
       what: 'A slide background colour, and the other slide-level properties.',
       when: 'Section dividers; hiding a slide; picking a geometry preset.',

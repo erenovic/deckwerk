@@ -105,6 +105,14 @@ export function elementSwatches(el: SlideElement): Array<{ color: string; kind: 
   return out;
 }
 
+/** A short kind for an object's glyph in a list row (see `.build-element-row`). */
+export function elementKind(el: SlideElement): string {
+  if (el.type === 'text') {
+    return el.table || /<table\b/i.test(el.html) ? 'table' : /<(ul|ol)\b/i.test(el.html) ? 'list' : 'text';
+  }
+  return el.type === 'shape' ? `shape-${el.shape}` : el.type;
+}
+
 export function describeElement(el: SlideElement): string {
   switch (el.type) {
     case 'text': {

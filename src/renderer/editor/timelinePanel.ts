@@ -2,7 +2,7 @@ import type { Slide, TimelineEntry } from '@shared/deck.js';
 import { makeId } from '@shared/geometry.js';
 import { expandTimeline, groupIntoSteps, isParagraphBuild } from '@shared/timeline.js';
 import { countParagraphs, paragraphTexts } from '@shared/paragraphs.js';
-import { describeElement, renderElementLabel } from './elementLabel.js';
+import { describeElement, elementKind, renderElementLabel } from './elementLabel.js';
 import type { EditorStore } from './store.js';
 
 /**
@@ -121,10 +121,7 @@ export class TimelinePanel {
       row.type = 'button';
       row.className = 'build-element-row';
       row.dataset.elementId = element.id;
-      row.dataset.kind = element.type === 'text'
-        ? (element.table || /<table\b/i.test(element.html) ? 'table'
-          : /<(ul|ol)\b/i.test(element.html) ? 'list' : 'text')
-        : element.type === 'shape' ? `shape-${element.shape}` : element.type;
+      row.dataset.kind = elementKind(element);
       row.classList.toggle('selected', selection.has(element.id));
       renderElementLabel(row, element);
       const steps = numbersByTarget.get(element.id);

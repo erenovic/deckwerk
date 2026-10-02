@@ -61,6 +61,8 @@ export const IPC = {
   viewToggleGrid: 'view:toggleGrid',
   /** Editor → main: the grid is now shown or hidden, for the menu's checkmark. */
   viewGridState: 'view:gridState',
+  /** Main → editor: Arrange › Group or Ungroup was chosen from the menu. */
+  arrangeCommand: 'arrange:command',
   agentContextPublish: 'agent:contextPublish',
   agentRequest: 'agent:request',
   agentResponse: 'agent:response',

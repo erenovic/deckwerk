@@ -761,6 +761,8 @@ export function elementFromNode(
       ? { morphId: node.dataset.morph || null } : {}),
     ...(node.dataset.lineageId !== undefined
       ? { lineageId: node.dataset.lineageId || null } : {}),
+    ...(node.dataset.groups?.trim()
+      ? { groups: node.dataset.groups.trim().split(/\s+/) } : {}),
   };
   const mediaBase = { ...base, style: { ...base.style } };
   // The player wrapper clips native media for crops and rounded corners. That
@@ -1047,6 +1049,7 @@ function elementToHtml(element: SlideElement, build?: TimelineEntry): string {
       ? `data-morph="${escape(element.morphId ?? '')}"` : '',
     element.lineageId !== undefined
       ? `data-lineage-id="${escape(element.lineageId ?? '')}"` : '',
+    element.groups?.length ? `data-groups="${escape(element.groups.join(' '))}"` : '',
     build ? `data-build="${build.trigger.on}${build.trigger.delay ? `+${build.trigger.delay}` : ''}"` : '',
     element.type === 'text' && element.layoutPlaceholder
       ? `data-layout-slot="${element.layoutPlaceholder}"` : '',

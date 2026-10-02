@@ -190,6 +190,23 @@ describe('measured nodes become deck objects', () => {
     expect(measured).toMatchObject({ type: 'video', maskShape: 'circle' });
   });
 
+  it('round-trips the groups an object belongs to', () => {
+    const deck = emptyDeck('Groups');
+    deck.slides[0].elements = [{
+      id: 'label', type: 'text', x: 10, y: 20, w: 500, h: 100, rot: 0, z: 1, opacity: 1,
+      class: [], style: {}, html: 'Encoder', align: 'left', valign: 'top', groups: ['node', 'inner'],
+    }];
+    const html = slideToHtml(parseDeck(deck).slides[0], { w: 1920, h: 1080 });
+    expect(html).toContain('data-groups="node inner"');
+
+    const measured = elementFromNode(node({
+      tag: 'p', dataset: { groups: 'node inner' }, html: 'Encoder',
+    }), 'label', 1);
+    expect(measured).toMatchObject({ groups: ['node', 'inner'] });
+    const loose = elementFromNode(node({ tag: 'p', html: 'Alone' }), 'alone', 2);
+    expect(loose).not.toHaveProperty('groups');
+  });
+
   it('round-trips Gaussian noise settings on text and video', () => {
     const encoded = encodeURIComponent(JSON.stringify([{
       type: 'gaussianNoise', amount: 0.45, frequencyCutoff: 0.2,

@@ -3921,3 +3921,167 @@ describe('saving an edit leaves no formula split across runs', () => {
     expect(html).toBe('<p>Price \\$5: $a+b$ done now</p>');
   });
 });
+
+describe('object groups', () => {
+  beforeEach(() => document.body.replaceChildren());
+
+  function stageAtOne(host: HTMLElement): void {
+    host.querySelector<HTMLElement>('.stage')!.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 1920, height: 1080 }) as DOMRect;
+  }
+
+  function pointer(target: EventTarget, type: string, x: number, y: number, init: PointerEventInit = {}): void {
+    target.dispatchEvent(new PointerEvent(type, {
+      clientX: x, clientY: y, bubbles: true, pointerId: 1, button: 0, ...init,
+    }));
+  }
+
+  function click(target: EventTarget, x: number, y: number): void {
+    pointer(target, 'pointerdown', x, y);
+    pointer(target, 'pointerup', x, y);
+  }
+
+  const key = (init: KeyboardEventInit) => document.body.dispatchEvent(
+    new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }),
+  );
+
+  /** text-1 and video-1 grouped, nothing selected. */
+  function grouped() {
+    const made = setup();
+    stageAtOne(made.host);
+    made.store.select(['text-1', 'video-1']);
+    expect(made.store.groupSelected()).toBe(true);
+    made.store.clearSelection();
+    return made;
+  }
+
+  const element = (store: EditorStore, id: string) => store.slide!.elements.find((el) => el.id === id)!;
+  const selection = (store: EditorStore) => [...store.get().selection].sort();
+
+  it('selects the whole group on a click, framed once with its pieces traced inside', () => {
+    const { store, host } = grouped();
+    click(host, 300, 150);
+    expect(selection(store)).toEqual(['text-1', 'video-1']);
+    expect(host.querySelectorAll('.group-frame')).toHaveLength(1);
+    expect(host.querySelectorAll('.group-frame .handle')).toHaveLength(8);
+    expect(host.querySelectorAll('.sel-box.group-member')).toHaveLength(2);
+    expect(host.querySelectorAll('.sel-box .handle')).toHaveLength(0);
+  });
+
+  it('goes into the group on a second click, and its double-click does not open the text', () => {
+    const { store, canvas, host } = grouped();
+    click(host, 300, 150);
+    click(host, 300, 150);
+    host.dispatchEvent(new MouseEvent('dblclick', { clientX: 300, clientY: 150, bubbles: true }));
+    expect(selection(store)).toEqual(['text-1']);
+    expect(canvas.isEditing()).toBe(false);
+    expect(host.querySelectorAll('.group-frame')).toHaveLength(0);
+    // Inside the group a click picks a sibling on its own.
+    click(host, 400, 500);
+    expect(selection(store)).toEqual(['video-1']);
+  });
+
+  it('steps out to the group on Escape, then deselects', () => {
+    const { store, host } = grouped();
+    bindEditorKeys(shellDeps(store), noopClipboard());
+    click(host, 300, 150);
+    click(host, 300, 150);
+    key({ key: 'Escape' });
+    expect(selection(store)).toEqual(['text-1', 'video-1']);
+    key({ key: 'Escape' });
+    expect(selection(store)).toEqual([]);
+  });
+
+  it('drags the whole group when one piece is grabbed', () => {
+    const { store, host } = grouped();
+    pointer(host, 'pointerdown', 300, 150);
+    pointer(host, 'pointermove', 340, 190);
+    pointer(host, 'pointerup', 340, 190);
+    expect(element(store, 'text-1')).toMatchObject({ x: 140, y: 140 });
+    expect(element(store, 'video-1')).toMatchObject({ x: 140, y: 340 });
+  });
+
+  it('takes the whole group when a marquee touches one piece', () => {
+    const { store, host } = grouped();
+    pointer(host, 'pointerdown', 1500, 900);
+    pointer(host, 'pointermove', 600, 500);
+    pointer(host, 'pointerup', 600, 500);
+    expect(selection(store)).toEqual(['text-1', 'video-1']);
+  });
+
+  it('scales every piece within the frame from the frame handles, in one undo step', () => {
+    const { store, host } = grouped();
+    click(host, 300, 150);
+    // Frame: 100,100 to 740,660. Grow it by half from its southeast corner.
+    const handle = host.querySelector<HTMLElement>('.group-frame .handle-se')!;
+    pointer(handle, 'pointerdown', 740, 660);
+    pointer(host, 'pointermove', 1060, 940);
+    pointer(host, 'pointerup', 1060, 940);
+    expect(element(store, 'text-1')).toMatchObject({ x: 100, y: 100, w: 900, h: 180 });
+    expect(element(store, 'video-1')).toMatchObject({ x: 100, y: 400, w: 960, h: 540 });
+    store.undo();
+    expect(element(store, 'video-1')).toMatchObject({ x: 100, y: 300, w: 640, h: 360 });
+  });
+
+  it('turns the group about its frame centre with the gesture modifier', () => {
+    const { store, host } = grouped();
+    click(host, 300, 150);
+    // Frame centre is 420,380; start due east of it and end due south.
+    const handle = host.querySelector<HTMLElement>('.group-frame .handle-e')!;
+    pointer(handle, 'pointerdown', 740, 380, { metaKey: true, ctrlKey: true });
+    pointer(host, 'pointermove', 420, 700, { metaKey: true, ctrlKey: true });
+    pointer(host, 'pointerup', 420, 700, { metaKey: true, ctrlKey: true });
+    const text = element(store, 'text-1');
+    expect(text.rot).toBe(90);
+    // The text's centre (400,160) swings a quarter turn about 420,380.
+    expect(text.x + text.w / 2).toBeCloseTo(640, 0);
+    expect(text.y + text.h / 2).toBeCloseTo(360, 0);
+    expect(element(store, 'video-1').rot).toBe(90);
+  });
+
+  it('groups with ⌘G and ungroups with ⇧⌘G', () => {
+    const { store } = setup();
+    bindEditorKeys(shellDeps(store), noopClipboard());
+    store.select(['text-1', 'video-1']);
+    key({ key: 'g', code: 'KeyG', metaKey: true, ctrlKey: true });
+    const [group] = element(store, 'text-1').groups ?? [];
+    expect(group).toBeTruthy();
+    expect(element(store, 'video-1').groups).toEqual([group]);
+    key({ key: 'G', code: 'KeyG', metaKey: true, ctrlKey: true, shiftKey: true });
+    expect(element(store, 'text-1').groups).toBeUndefined();
+    expect(selection(store)).toEqual(['text-1', 'video-1']);
+  });
+
+  it('duplicates a group as a group of its own, and dissolves one left with a single piece', () => {
+    const { store, host } = grouped();
+    click(host, 300, 150);
+    const copies = store.duplicateSelection();
+    const original = element(store, 'text-1').groups![0];
+    const copied = element(store, copies[0]).groups;
+    expect(copied).toHaveLength(1);
+    expect(copied![0]).not.toBe(original);
+    expect(element(store, copies[1]).groups).toEqual(copied);
+
+    store.select(['video-1']);
+    store.deleteSelection();
+    expect(element(store, 'text-1').groups).toBeUndefined();
+  });
+
+  it('lists the group in the sidebar, and a row goes into the group', () => {
+    const { store, host } = grouped();
+    const inspectorHost = document.createElement('div');
+    document.body.appendChild(inspectorHost);
+    new Inspector(inspectorHost, store);
+    click(host, 300, 150);
+    expect(inspectorHost.querySelector('.insp-title')?.textContent).toBe('group');
+    const rows = [...inspectorHost.querySelectorAll<HTMLElement>('.group-member-row')];
+    // Frontmost first: the video paints above the text.
+    expect(rows.map((row) => row.dataset.elementId)).toEqual(['video-1', 'text-1']);
+    expect(rows.every((row) => row.classList.contains('selected'))).toBe(true);
+    rows[1].click();
+    expect(selection(store)).toEqual(['text-1']);
+    const inside = [...inspectorHost.querySelectorAll<HTMLElement>('.group-member-row')];
+    expect(inside.map((row) => row.classList.contains('selected'))).toEqual([false, true]);
+  });
+});
+

@@ -13,6 +13,15 @@ import {
 } from '@shared/clipboard.js';
 import { effectiveThemeStyle } from '@shared/themes.js';
 import { makeId } from '@shared/geometry.js';
+import {
+  groupMemberIds,
+  groupSelection,
+  pruneGroups,
+  remapCopiedGroups,
+  selectedGroups,
+  selectionContext,
+  ungroupSelection,
+} from '@shared/groups.js';
 import { pastedTableData } from '@shared/paragraphs.js';
 import { classifyMediaName } from '@shared/media.js';
 import type {
@@ -731,6 +740,7 @@ export class EditorStore {
     const index = this.state.slideIndex;
     this.commit((deck) => {
       const slide = deck.slides[index];
+      const copies: SlideElement[] = [];
       for (const el of slide.elements.filter((candidate) => ids.has(candidate.id))) {
         const copy = structuredClone(el);
         copy.lineageId = el.lineageId ?? el.id;
@@ -743,8 +753,12 @@ export class EditorStore {
           copy.control.y += offset.y;
         }
         created.push(copy.id);
-        slide.elements.push(copy);
+        copies.push(copy);
       }
+      // A duplicated group is a new group; a piece duplicated inside a group
+      // stays in it, beside its original.
+      remapCopiedGroups(copies, slide.elements, () => makeId('group'), true);
+      slide.elements.push(...copies);
     }, { label: ids.size === 1 ? 'Duplicate object' : 'Duplicate objects' });
     this.select(created);
     return created;
@@ -790,11 +804,80 @@ export class EditorStore {
     this.commit((deck) => {
       const slide = deck.slides[index];
       slide.elements = slide.elements.filter((e) => !ids.has(e.id));
+      pruneGroups(slide.elements);
       slide.timeline = slide.timeline.filter(
         (t) => !ids.has(t.action.target) && !(t.trigger.ref && ids.has(t.trigger.ref)),
       );
     }, { label: ids.size === 1 ? 'Delete object' : 'Delete objects' });
     this.clearSelection();
+  }
+
+  /**
+   * Select a click's worth of objects (a whole group, or one object). Adding
+   * toggles them as one: a group already wholly selected leaves the
+   * selection, anything else joins it whole.
+   */
+  selectUnit(ids: string[], additive = false): void {
+    if (!additive) {
+      this.select(ids);
+      return;
+    }
+    const next = new Set(this.state.selection);
+    const wholly = ids.every((id) => next.has(id));
+    for (const id of ids) {
+      if (wholly) next.delete(id);
+      else next.add(id);
+    }
+
+    this.select([...next]);
+  }
+
+  /** Whether ⌘G has anything to do: two or more pieces, not already one group. */
+  canGroupSelection(): boolean {
+    const slide = this.slide;
+    return Boolean(slide) && groupSelection(structuredClone(slide!.elements), this.state.selection, 'trial');
+  }
+
+  /** Whether ⇧⌘G has anything to do: a wholly selected group. */
+  canUngroupSelection(): boolean {
+    const slide = this.slide;
+    return Boolean(slide) && selectedGroups(slide!.elements, this.state.selection).length > 0;
+  }
+
+  /**
+   * Escape inside a group: select the group the author is in, as a whole,
+   * which also takes them up a level. False at the top level.
+   */
+  stepOutOfGroup(): boolean {
+    const slide = this.slide;
+    if (!slide) return false;
+    const context = selectionContext(slide.elements, this.state.selection);
+    if (!context) return false;
+    this.select(groupMemberIds(slide.elements, context));
+    return true;
+  }
+
+  /** Group the selected objects (⌘G); false when there is nothing to group. */
+  groupSelected(): boolean {
+    if (!this.canGroupSelection()) return false;
+    const selection = this.state.selection;
+    const index = this.state.slideIndex;
+    this.commit((deck) => {
+      groupSelection(deck.slides[index].elements, selection, makeId('group'));
+    }, { label: 'Group objects' });
+    return true;
+  }
+
+  /** Take the selected groups apart (⇧⌘G), keeping their pieces selected. */
+  ungroupSelected(): boolean {
+    if (!this.canUngroupSelection()) return false;
+    const index = this.state.slideIndex;
+    const selection = this.state.selection;
+    let count = 0;
+    this.commit((deck) => {
+      count = ungroupSelection(deck.slides[index].elements, selection).length;
+    }, { label: 'Ungroup objects' });
+    return count > 0;
   }
 
   /** The current selection, minus ids `deck` no longer has anywhere. */
