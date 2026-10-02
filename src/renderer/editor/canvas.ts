@@ -60,6 +60,7 @@ import {
   unbulletListItems,
 } from './listEditing.js';
 import { copiedLine, insertLineAbove, lineAt, linePayload, removeLine } from './lineClipboard.js';
+import { tidyTextRuns } from './textTidy.js';
 import {
   applyTypedLink,
   linkHrefForText,
@@ -4951,6 +4952,13 @@ export class EditorCanvas {
 
     // Without `splitBreaks`: a shift-return the author typed is a soft break
     // inside its paragraph, not a new one.
+    const untidied = authoredTextHtml(body);
+    // Leave no formula cut across runs and no spacing nobody chose in what is
+    // saved (textTidy.ts); the session's DOM is still laid out for that.
+    // Spans are merged only when tidying emptied or matched some: an edit
+    // with nothing to tidy must save exactly what its session committed, or
+    // one undo no longer lands on the state before it.
+    if (tidyTextRuns(body)) normalizeInlineStyleSpans(body);
     const html = authoredTextHtml(body);
     body.contentEditable = 'false';
     // Everything beginTextEdit stamped on the node comes off with the
@@ -4983,7 +4991,7 @@ export class EditorCanvas {
     // their edit; keep theirs and restore the rendered form of it.
     if (
       storeBase !== null && current.html !== storeBase
-      && html === domBase
+      && untidied === domBase
     ) {
       this.restoreRenderedForm(current, body);
       return;

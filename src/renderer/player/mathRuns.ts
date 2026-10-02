@@ -25,15 +25,29 @@ function blockOf(node: Node, root: Node): Node {
   return root;
 }
 
-/** `[start, end)` of each formula in `text`, display maths first as auto-render does. */
+/** The next `$` (or `$$`) at or after `from` that a backslash does not escape. */
+function nextDelimiter(text: string, needle: '$' | '$$', from: number): number {
+  for (let at = text.indexOf(needle, from); at !== -1; at = text.indexOf(needle, at + 1)) {
+    let slashes = 0;
+    for (let back = at - 1; back >= 0 && text[back] === '\\'; back--) slashes += 1;
+    if (slashes % 2 === 0) return at;
+  }
+  return -1;
+}
+
+/**
+ * `[start, end)` of each formula in `text`, display maths first as auto-render
+ * does. A `\$` is a written dollar sign, never a delimiter, so this reads the
+ * editor's raw source as well as the renderer's (which masks them first).
+ */
 export function mathRanges(text: string): Array<[number, number]> {
   const ranges: Array<[number, number]> = [];
   let at = 0;
   while (at < text.length) {
-    const open = text.indexOf('$', at);
+    const open = nextDelimiter(text, '$', at);
     if (open === -1) break;
     const display = text.startsWith('$$', open);
-    const close = text.indexOf(display ? '$$' : '$', open + (display ? 2 : 1));
+    const close = nextDelimiter(text, display ? '$$' : '$', open + (display ? 2 : 1));
     if (close === -1) break;
     const end = close + (display ? 2 : 1);
     ranges.push([open, end]);

@@ -34,6 +34,9 @@ describe('maths split across formatting runs', () => {
   it('finds formulas, display maths first', () => {
     expect(mathRanges('a $x$ b $$y$$ c')).toEqual([[2, 5], [8, 13]]);
     expect(mathRanges('only $ one')).toEqual([]);
+    // A written dollar sign is not a delimiter, in the editor's raw source.
+    expect(mathRanges('costs \\$5, so $x$')).toEqual([[14, 17]]);
+    expect(mathRanges('escaped slash \\\\$x$')).toEqual([[16, 19]]);
   });
 
   it('gathers a split formula into one text node, keeping the text around it', () => {

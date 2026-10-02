@@ -3902,3 +3902,22 @@ describe('equation marks after an edit in place', () => {
     expect(content().dataset.mathUnclosed).toBeUndefined();
   });
 });
+
+describe('saving an edit leaves no formula split across runs', () => {
+  it('joins a formula the editor split, keeping written dollar signs as they are', () => {
+    const { store, canvas } = setup();
+    store.select(['text-1']);
+    store.updateSelected((element) => {
+      if (element.type === 'text') {
+        element.html = '<p>Price \\$5: $a<span style="font-weight: 700;">+b</span>$ done</p>';
+      }
+    });
+    canvas.beginTextEdit('text-1');
+    // A real change, so the session commits.
+    const body = document.querySelector<HTMLElement>('[data-element-id="text-1"] .text-content')!;
+    body.querySelector('p')!.append(' now');
+    canvas.endTextEditing(true);
+    const html = (store.slide!.elements.find((element) => element.id === 'text-1') as { html: string }).html;
+    expect(html).toBe('<p>Price \\$5: $a+b$ done now</p>');
+  });
+});
