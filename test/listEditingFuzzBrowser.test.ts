@@ -205,7 +205,7 @@ async function runWalk(seed: number): Promise<void> {
     'backspace at start', 'type', 'indent', 'outdent', 'undo',
     'other box', 'escape and re-enter', 'cut words', 'cut bullet', 'paste',
     'format and type', 'format and type', 'dash bullet', 'indent selection', 'outdent selection',
-    'level kind', 'typed level marker',
+    'level kind', 'typed level marker', 'line cut and paste',
   ] as const;
   // The clipboard holds whatever the last cut put there; a paste before any
   // cut would paste another test's leftovers, which reproduces nothing.
@@ -276,6 +276,9 @@ async function runWalk(seed: number): Promise<void> {
         break;
       case 'typed level marker':
         await typedLevelMarker(next, step, label);
+        break;
+      case 'line cut and paste':
+        await lineCutAndPaste(next, label);
         break;
       case 'indent selection':
       case 'outdent selection':
@@ -508,6 +511,37 @@ async function formatAndType(next: () => number, step: number, label: string): P
  * the words typed into it keep whatever format is pending — the reported
  * case being an underline lost as the line became a bullet.
  */
+/**
+ * Cmd/Ctrl+X with only a caret cuts the caret's whole line; Cmd/Ctrl+V
+ * elsewhere puts it back as a line. The cut removes exactly that line's
+ * characters, and the paste restores every character the box had.
+ */
+async function lineCutAndPaste(next: () => number, label: string): Promise<void> {
+  await moveCaret(next);
+  const line = await session.cdp.evaluate<string | null>(`(() => {
+    const selection = window.getSelection();
+    if (!selection?.rangeCount || !selection.isCollapsed) return null;
+    const node = selection.getRangeAt(0).startContainer;
+    const holder = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+    const body = document.querySelector(${JSON.stringify(CONTENT)});
+    const item = holder?.closest('li');
+    const block = item && body.contains(item) ? item : holder?.closest('p, div, h1, h2, h3, h4, h5, h6');
+    return block && block !== body && body.contains(block) ? block.textContent : null;
+  })()`);
+  if (line === null) return;
+  const sorted = (text: string) => [...compact(text)].sort().join('');
+  const textBefore = compact(await session.text());
+  await session.cdp.chord('x', 'KeyX', 88, MOD, ['cut']);
+  await wait(150);
+  expect(compact(await session.text()).length, `${label}: the cut did not take exactly the caret's line`)
+    .toBe(textBefore.length - compact(line).length);
+  await moveCaret(next);
+  await session.cdp.chord('v', 'KeyV', 86, MOD, ['paste']);
+  await wait(150);
+  expect(sorted(await session.text()), `${label}: pasting the line back lost or added characters`)
+    .toBe(sorted(textBefore));
+}
+
 /** The kind of the list the caret's item is in, or null outside a list. */
 async function caretLevel(): Promise<'OL' | 'UL' | null> {
   return session.cdp.evaluate<'OL' | 'UL' | null>(`(() => {

@@ -59,6 +59,7 @@ import {
   parentListItem,
   unbulletListItems,
 } from './listEditing.js';
+import { copiedLine, insertLineAbove, lineAt, linePayload, removeLine } from './lineClipboard.js';
 import {
   applyTypedLink,
   linkHrefForText,
@@ -217,6 +218,32 @@ function visibleText(value: string): string {
  * space and text, with the caret after all of it). Both leave real lists
  * alone — the browser already continues those.
  */
+/**
+ * Write HTML and plain text to the system clipboard from inside a key
+ * handler, where the browser treats `copy` as user-initiated. Works without
+ * `navigator.clipboard`, which plain-HTTP collaboration origins lack.
+ */
+function writeClipboardFromKey(html: string, text: string): boolean {
+  let written = false;
+  const onCopy = (event: ClipboardEvent) => {
+    if (!event.clipboardData) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    event.clipboardData.setData('text/html', html);
+    event.clipboardData.setData('text/plain', text);
+    written = true;
+  };
+  document.addEventListener('copy', onCopy, true);
+  try {
+    document.execCommand('copy');
+  } catch {
+    written = false;
+  } finally {
+    document.removeEventListener('copy', onCopy, true);
+  }
+  return written;
+}
+
 /**
  * A `1.` or `-` typed as the whole of a list item's own line, with the caret
  * at its end: the space after it switches that level's kind (see
@@ -2029,6 +2056,74 @@ export class EditorCanvas {
   }
 
   /**
+   * Cmd/Ctrl+C or +X with only a caret: copy (or cut) the caret's whole line
+   * — its paragraph or list item — the way code editors do. Returns false
+   * where that does not apply (a selection, a table cell), leaving the key to
+   * the browser's own copy and cut.
+   */
+  private copyWholeLine(body: HTMLElement, cut: boolean): boolean {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || !selection.isCollapsed || this.tableSelection) return false;
+    const range = selection.getRangeAt(0);
+    if (!body.contains(range.startContainer)) return false;
+    const line = lineAt(body, range.startContainer);
+    if (!line) return false;
+    const { html, text } = linePayload(line, authoredTextHtml);
+    if (!writeClipboardFromKey(html, text)) return false;
+    if (!cut) return true;
+
+    const landing = removeLine(line);
+    // A box cut down to nothing keeps one empty paragraph to type into.
+    if (!body.querySelector('li, p, div, h1, h2, h3, h4, h5, h6, blockquote, pre') && !body.textContent?.trim()) {
+      const paragraph = document.createElement('p');
+      paragraph.appendChild(document.createElement('br'));
+      body.replaceChildren(paragraph);
+    }
+    const target = landing && body.contains(landing)
+      ? (/^(UL|OL)$/.test(landing.tagName) ? landing.querySelector('li') ?? landing : landing)
+      : body.firstElementChild ?? body;
+    const caret = document.createRange();
+    caret.selectNodeContents(target);
+    caret.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(caret);
+    this.textSelectionRange = caret.cloneRange();
+    const node = body.closest<HTMLElement>('.element');
+    if (node) scheduleAutoFit(node);
+    this.commitLiveTextDom('Cut line');
+    return true;
+  }
+
+  /**
+   * Paste a line copied whole as a line of its own above the caret's, leaving
+   * the caret where it was. Returns false for any other paste.
+   */
+  private pasteWholeLine(body: HTMLElement, html: string): boolean {
+    const copied = copiedLine(html);
+    if (!copied) return false;
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || !selection.isCollapsed || this.tableSelection) return false;
+    const range = selection.getRangeAt(0);
+    if (!body.contains(range.startContainer)) return false;
+    const holder = range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement;
+    if (holder?.closest('td, th')) return false;
+    // The copy came through the system clipboard: clean it like any paste.
+    const template = document.createElement('template');
+    template.innerHTML = sanitizePastedTextHtml(copied.outerHTML);
+    const clean = template.content.firstElementChild as HTMLElement | null;
+    if (!clean) return false;
+    const caret = range.cloneRange();
+    insertLineAbove(body, lineAt(body, range.startContainer), clean);
+    selection.removeAllRanges();
+    selection.addRange(caret);
+    this.textSelectionRange = caret.cloneRange();
+    const node = body.closest<HTMLElement>('.element');
+    if (node) scheduleAutoFit(node);
+    this.commitLiveTextDom('Paste line');
+    return true;
+  }
+
+  /**
    * Pressing or releasing Shift mid-drag re-applies the move at the pointer's
    * last position, so the object jumps onto (or off) its line at once instead
    * of waiting for the mouse to move again.
@@ -3385,6 +3480,13 @@ export class EditorCanvas {
       const pasted = event.clipboardData?.getData('text/html') ?? '';
       const plainText = event.clipboardData?.getData('text/plain') ?? '';
 
+      // A line copied whole (nothing selected) goes back in whole, above the
+      // caret's line, the way code editors paste a copied line.
+      if (this.pasteWholeLine(body, pasted)) {
+        event.preventDefault();
+        return;
+      }
+
       // Pasting a URL onto selected text links that text rather than
       // replacing it, the way it works in Slack and every other chat app.
       const pastedHref = linkHrefForText(plainText);
@@ -3953,6 +4055,15 @@ export class EditorCanvas {
       // Editing keys must not reach the canvas shortcuts (Delete would remove
       // the element you are typing into).
       e.stopPropagation();
+      // With nothing selected, Cmd/Ctrl+C and +X take the caret's whole line.
+      if (
+        (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey
+        && ['c', 'x'].includes(e.key.toLowerCase())
+        && this.copyWholeLine(body, e.key.toLowerCase() === 'x')
+      ) {
+        e.preventDefault();
+        return;
+      }
       // Return ends a URL just as a space does, whatever it goes on to do to
       // the paragraph or the list item below. The caret is left where it was,
       // outside the new link, so the split still happens where it was asked
