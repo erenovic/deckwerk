@@ -37,6 +37,12 @@ export const ThemeStyleSchema = z.object({
     muted: z.string(),
     accent: z.string(),
   }),
+  /**
+   * The deck's gap between paragraphs and between list items, in px, for
+   * every text box that does not set its own (Props). Unset keeps the
+   * stylesheet's defaults: no gap between paragraphs, a small one in lists.
+   */
+  paragraphSpacing: z.number().min(0).optional(),
 });
 
 /**

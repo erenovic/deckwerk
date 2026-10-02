@@ -21,6 +21,8 @@ export interface ThemePreset {
   fonts: FontSet['roles'];
   /** The swatch row offered in every colour picker. */
   palette: string[];
+  /** A deck's paragraph spacing, carried while it is being edited and previewed. */
+  paragraphSpacing?: number;
   colors: {
     background: string;
     text: string;
@@ -294,7 +296,11 @@ export function fullThemeSelection(themeId: string): ThemeSelection {
  * (installThemeStyle), so choosing restyles nothing already on screen.
  */
 export function chooseDeckTheme(deck: Deck, theme: ThemePreset, currentCss?: string): void {
-  installThemeStyle(deck, themeStyleOf(theme), theme.id, { slides: new Set(), elements: new Set() }, currentCss);
+  // Paragraph spacing is the deck's rhythm, not part of a preset's look: a new
+  // theme keeps the spacing the author chose.
+  const style = themeStyleOf(theme);
+  if (deck.themeStyle?.paragraphSpacing !== undefined) style.paragraphSpacing = deck.themeStyle.paragraphSpacing;
+  installThemeStyle(deck, style, theme.id, { slides: new Set(), elements: new Set() }, currentCss);
   deck.themeSelection = fullThemeSelection(theme.id);
 }
 
@@ -350,6 +356,7 @@ export function presetFromStyle(style: ThemeStyle, base: ThemePreset): ThemePres
     fonts: structuredClone(style.fonts),
     palette: [...style.palette],
     colors: structuredClone(style.colors),
+    ...(style.paragraphSpacing !== undefined ? { paragraphSpacing: style.paragraphSpacing } : {}),
   };
 }
 
@@ -470,7 +477,12 @@ export function fontSetOf(theme: ThemePreset): FontSet {
 }
 
 export function themeStyleOf(theme: ThemePreset): ThemeStyle {
-  return structuredClone({ fonts: theme.fonts, palette: theme.palette, colors: theme.colors });
+  return structuredClone({
+    fonts: theme.fonts,
+    palette: theme.palette,
+    colors: theme.colors,
+    ...(theme.paragraphSpacing !== undefined ? { paragraphSpacing: theme.paragraphSpacing } : {}),
+  });
 }
 
 /** Markers so installing again replaces rather than stacks. */
@@ -494,7 +506,28 @@ export function themeStyleCss(style: ThemeStyle, label = 'Custom deck defaults')
     ``,
     `.role-caption { color: ${style.colors.muted}; }`,
     ``,
+    ...paragraphSpacingCss(style.paragraphSpacing),
   ].join('\n');
+}
+
+/**
+ * The deck's paragraph spacing, for text boxes without their own. These are
+ * type.css's per-box spacing rules (keyed to `data-paragraph-spacing`, which
+ * a box's own value sets) restated for the boxes that have none, so one
+ * number in the theme spaces every paragraph and list item in the deck while
+ * a value set in Props still wins on its box. The variable is declared too,
+ * so the Props field can show the theme's value.
+ */
+function paragraphSpacingCss(spacing: number | undefined): string[] {
+  if (spacing === undefined) return [];
+  const box = '.element-text:not([data-paragraph-spacing])';
+  return [
+    `${box} { --paragraph-spacing: ${spacing}px; }`,
+    `${box} .text-body :where(p, ul, ol, li) { margin-top: 0; margin-bottom: 0; }`,
+    `${box} .text-content > * + *,`,
+    `${box} .text-body li + li:not(:is(ul, ol) :is(ul, ol) li) { margin-top: ${spacing}px; }`,
+    ``,
+  ];
 }
 
 export type ThemeScope = 'deck' | 'slide' | 'slides' | 'selection';

@@ -875,7 +875,11 @@ export function createThemePanel(deps: ThemePanelDeps): ThemePanel {
       // was just edited: an edited size with Type scale left off used to
       // change nothing on the slides at all.
       for (const group of edited) tickAdoption(group);
-      setStatusMessage(`Edited “${base.name}”. New slides use it; click Apply to update existing slides.`);
+      // Spacing is not held back like type is: boxes without their own
+      // spacing follow the deck's at once.
+      setStatusMessage(edited.length > 0
+        ? `Edited “${base.name}”. New slides use it; click Apply to update existing slides.`
+        : `Edited “${base.name}”. Paragraph spacing now applies to every text box without its own.`);
     }
     notifyThemePreview();
   }
@@ -921,6 +925,19 @@ export function createThemePanel(deps: ThemePanelDeps): ThemePanel {
       sizeField.querySelector('input')!.title = 'Value in px';
       themeEditor.appendChild(sizeField);
     }
+    // One gap for the whole deck, between paragraphs and between list items;
+    // a box's own Paragraph spacing (Props) still overrides it.
+    const spacingField = numberField(
+      'Paragraph spacing',
+      style.paragraphSpacing ?? null,
+      (value) => {
+        const spacing = Math.round(Math.max(0, Math.min(400, value)) * 10) / 10;
+        mutate((target) => { target.paragraphSpacing = spacing; });
+      },
+    );
+    spacingField.classList.add('theme-role-size', 'theme-paragraph-spacing');
+    spacingField.querySelector('input')!.title = 'Gap between paragraphs and list items, in px';
+    themeEditor.appendChild(spacingField);
 
     themeEditor.appendChild(groupLabel('Semantic colours'));
     for (const [key, label] of [

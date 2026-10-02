@@ -4,7 +4,7 @@ import type { CssEditor } from '../src/renderer/editor/cssEditor.js';
 import { createThemePanel } from '../src/renderer/editor/themePanel.js';
 import { EditorStore } from '../src/renderer/editor/store.js';
 import { emptyDeck } from '../src/shared/deck.js';
-import { STOCK_STYLESHEET_STYLE, THEMES, fullThemeSelection, themeStyleOf } from '../src/shared/themes.js';
+import { STOCK_STYLESHEET_STYLE, THEMES, chooseDeckTheme, fullThemeSelection, themeStyleCss, themeStyleOf } from '../src/shared/themes.js';
 
 describe('theme panel', () => {
   beforeEach(() => document.body.replaceChildren());
@@ -434,7 +434,7 @@ describe('the theme editor’s type scale', () => {
 
     const sizes = [...panel.element.querySelectorAll<HTMLElement>('.theme-role-size')];
     expect(sizes.map((node) => node.querySelector('span')?.textContent)).toEqual([
-      'Title size', 'Body size', 'Caption size',
+      'Title size', 'Body size', 'Caption size', 'Paragraph spacing',
     ]);
     const title = sizes[0].querySelector('input')!;
     const before = THEMES[0].fonts.title.size;
@@ -621,5 +621,49 @@ describe('editing a theme size and applying it', () => {
     button(/^Apply theme/).click();
     expect(box().style['font-size']).toBeUndefined();
     expect(box().overrides).toBeUndefined();
+  });
+});
+
+describe('paragraph spacing in the Design tab', () => {
+  beforeEach(() => document.body.replaceChildren());
+
+  it('is set once in the theme editor and spaces every box without its own', () => {
+    const store = new EditorStore(emptyDeck('Spacing'), '/tmp/theme-spacing');
+    let css = '';
+    const status: string[] = [];
+    const panel = createThemePanel({
+      store,
+      cssEditor: { getValue: () => css, setValue: (value: string) => { css = value; } } as unknown as CssEditor,
+      save: vi.fn(),
+      setStatusMessage: (message: string) => status.push(message),
+      saveThemeCss: (value: string) => { css = value; },
+    });
+    document.body.appendChild(panel.element);
+    const button = (text: RegExp) => [...panel.element.querySelectorAll<HTMLButtonElement>('button')]
+      .find((candidate) => text.test(candidate.textContent ?? ''))!;
+    button(/^Edit…$/).click();
+    const input = panel.element.querySelector<HTMLInputElement>('.theme-paragraph-spacing input')!;
+    input.value = '24';
+    input.dispatchEvent(new Event('change'));
+    button(/^Done$/).click();
+
+    expect(store.get().deck.themeStyle?.paragraphSpacing).toBe(24);
+    expect(css).toContain('.element-text:not([data-paragraph-spacing]) { --paragraph-spacing: 24px; }');
+    expect(css).toMatch(/\.element-text:not\(\[data-paragraph-spacing\]\) \.text-content > \* \+ \*/);
+    expect(status.at(-1)).toMatch(/Paragraph spacing now applies/);
+    // Type was not edited, so Apply is left as it was.
+    expect(panel.element.querySelector<HTMLInputElement>('input[data-group="typeScale"]')!.checked).toBe(false);
+
+    store.undo();
+    expect(store.get().deck.themeStyle?.paragraphSpacing).toBeUndefined();
+  });
+
+  it('writes no spacing rules for a theme without spacing, and keeps the spacing across a theme change', () => {
+    expect(themeStyleCss(themeStyleOf(THEMES[0]))).not.toContain('paragraph-spacing');
+    const deck = emptyDeck('Keep');
+    deck.themeStyle = { ...themeStyleOf(THEMES[0]), paragraphSpacing: 18 };
+    chooseDeckTheme(deck, THEMES[1]);
+    expect(deck.themePreset).toBe(THEMES[1].id);
+    expect(deck.themeStyle?.paragraphSpacing).toBe(18);
   });
 });
