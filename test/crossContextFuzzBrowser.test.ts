@@ -138,7 +138,7 @@ function isKnownStaleSlideIdentity(error: string): boolean {
 type OpName =
   | 'click' | 'shift-click' | 'double-click text' | 'double-click image then text'
   | 'type nonce' | 'bold mid-word' | 'escape' | 'click empty' | 'marquee'
-  | 'rail hop' | 'rail drag' | 'find next' | 'shift drag' | 'page numbers' | 'undo' | 'redo' | 'undo round-trip' | 'delete selection'
+  | 'rail hop' | 'rail drag' | 'find next' | 'shift drag' | 'page numbers' | 'theme apply' | 'undo' | 'redo' | 'undo round-trip' | 'delete selection'
   | 'cmd+a';
 
 interface Violation { seed: number; step: number; op: OpName; oracle: string; detail: string }
@@ -388,6 +388,7 @@ function chooseOp(next: () => number, pre: CrossState): OpName {
   add('find next', 1);
   if (pre.editing === null && targets.length > 0) add('shift drag', 2);
   if (pre.editing === null) add('page numbers', 1);
+  if (pre.editing === null) add('theme apply', 1);
   add('undo', 2);
   add('redo', 1);
   add('undo round-trip', 1);
@@ -606,6 +607,27 @@ async function performOp(
         flag('routing', `page numbers ${shown.on ? 'on' : 'off'} on slide ${shown.index + 1} showed ${JSON.stringify(shown.label)}`);
       }
       if (shown.inLayer) flag('routing', 'the page number landed inside the slide layer');
+      return 'same';
+    }
+    case 'theme apply': {
+      // The Design tab's Apply with Type scale and "Replace my manual
+      // changes" ticked, by real clicks: afterwards no text box on the slide
+      // may keep a size of its own -- each one follows the theme's role size.
+      await session.cdp.click('#side-tabs button[data-panel="themePanel"]', 'Design tab');
+      await wait(120);
+      for (const group of ['typeScale', 'replaceAuthored']) {
+        const ticked = await session.cdp.evaluate<boolean>(
+          `document.querySelector('input[data-group="${group}"]').checked`);
+        if (!ticked) await session.cdp.click(`input[data-group="${group}"]`, group);
+      }
+      await session.cdp.click('.theme-apply-action button', 'Apply theme');
+      await wait(150);
+      await session.cdp.click('#side-tabs button[data-panel="inspector"]', 'Props tab');
+      await wait(150);
+      const sized = await session.cdp.evaluate<string[]>(`window.store.slide.elements
+        .filter((el) => el.type === 'text' && (el.style['font-size'] || /font-size:\\s*\\d*\\.?\\d+(px|pt)/.test(el.html)))
+        .map((el) => el.id)`);
+      if (sized.length > 0) flag('routing', `Apply with Type scale left sizes on [${sized.join(', ')}]`);
       return 'same';
     }
     case 'undo':

@@ -510,6 +510,11 @@ export interface ThemeAdoption {
   objectColors: boolean;
   replaceOverrides: boolean;
   detectRoles: boolean;
+  /**
+   * Replace what the author set on purpose too (the "+" overrides), not only
+   * the copies the app pinned. Off unless asked for: a bold body stays bold.
+   */
+  replaceAuthored?: boolean;
 }
 
 /**
@@ -633,9 +638,15 @@ export function adoptThemeStyles(
         if (options.textColor) properties.push('color');
         // What the author set on purpose is theirs: a bold body stays bold
         // while its face, size and colour move to the new theme.
-        const kept = new Set(el.overrides ?? []);
+        const kept = new Set(options.replaceAuthored ? [] : el.overrides ?? []);
         const replaced = properties.filter((property) => !kept.has(property));
         if (replaced.length > 0) clearTextProperties(el, replaced);
+        if (options.replaceAuthored && el.overrides) {
+          // Replaced on request, so no longer the author's own: the "+" goes.
+          const remaining = el.overrides.filter((property) => !replaced.includes(property));
+          if (remaining.length > 0) el.overrides = remaining;
+          else delete el.overrides;
+        }
       } else if (el.type === 'shape' && options.objectColors) {
         if (el.fill) el.fill = remapObjectColor(el.fill, source.palette, slots);
         if (el.stroke) el.stroke = remapObjectColor(el.stroke, source.palette, slots, 'stroke');

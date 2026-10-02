@@ -139,6 +139,7 @@ export function createThemePanel(deps: ThemePanelDeps): ThemePanel {
     objectColors: false,
     replaceOverrides: true,
     detectRoles: false,
+    replaceAuthored: false,
   };
 
   /** The gallery selection can lead the installed deck theme until Apply/Install. */
@@ -733,6 +734,9 @@ export function createThemePanel(deps: ThemePanelDeps): ThemePanel {
       ['detectRoles', 'Detect roles for untagged text', '',
         () => themeAdoption.detectRoles,
         (on) => { themeAdoption.detectRoles = on; }],
+      ['replaceAuthored', 'Replace my manual changes', 'sizes, fonts, colours set by hand',
+        () => themeAdoption.replaceAuthored ?? false,
+        (on) => { themeAdoption.replaceAuthored = on; }],
     ];
     const propertyEls = propertyBoxes.map(([key, label, sub, read, write]) => {
       const box = optionBox(label, read(), sub);
@@ -817,11 +821,41 @@ export function createThemePanel(deps: ThemePanelDeps): ThemePanel {
     notifyThemePreview();
   }
 
+  /**
+   * Tick an Apply option the way a click would, so its readout and the
+   * Apply button's dry run follow.
+   */
+  function tickAdoption(group: string): void {
+    const input = element?.querySelector<HTMLInputElement>(`input[data-group="${group}"]`);
+    if (!input || input.checked) return;
+    input.checked = true;
+    input.dispatchEvent(new Event('change'));
+  }
+
+  /**
+   * Which Apply options carry an edit from `before` to `after`: an edited
+   * size has to reach existing slides through Type scale, a face through
+   * Typography, a colour through Colour.
+   */
+  function editedAdoptionGroups(before: ThemeStyle, after: ThemeStyle): string[] {
+    const roles = Object.keys(after.fonts) as Array<keyof ThemeStyle['fonts']>;
+    const differs = (pick: (style: ThemeStyle) => unknown) => JSON.stringify(pick(before)) !== JSON.stringify(pick(after));
+    const groups: string[] = [];
+    if (differs((style) => roles.map((role) => [style.fonts[role].family, style.fonts[role].weight]))) groups.push('typography');
+    if (differs((style) => roles.map((role) => [style.fonts[role].size, style.fonts[role].lineHeight, style.fonts[role].letterSpacing]))) {
+      groups.push('typeScale');
+    }
+    if (differs((style) => [style.colors, style.palette, roles.map((role) => style.fonts[role].color ?? null)])) groups.push('colour');
+    return groups;
+  }
+
   function finishDraft(): void {
     if (!draft) return;
     const { style, base } = draft;
     const deck = store.get().deck;
-    const changed = JSON.stringify(style) !== JSON.stringify(deck.themeStyle ?? themeStyleOf(base));
+    const previous = deck.themeStyle ?? themeStyleOf(base);
+    const changed = JSON.stringify(style) !== JSON.stringify(previous);
+    const edited = changed ? editedAdoptionGroups(previous, style) : [];
     draft = null;
     if (themeEditor) themeEditor.hidden = true;
     deps.onPreviewThemeDraft?.(null);
@@ -837,7 +871,11 @@ export function createThemePanel(deps: ThemePanelDeps): ThemePanel {
       themeGallery?.setSelected(store.get().deck.themePreset);
       themeGallery?.setInstalled(store.get().deck.themePreset);
       void save();
-      setStatusMessage(`Edited “${base.name}”. New slides use it; existing slides follow after Apply.`);
+      // Existing slides stay put until Apply, so make sure Apply carries what
+      // was just edited: an edited size with Type scale left off used to
+      // change nothing on the slides at all.
+      for (const group of edited) tickAdoption(group);
+      setStatusMessage(`Edited “${base.name}”. New slides use it; click Apply to update existing slides.`);
     }
     notifyThemePreview();
   }

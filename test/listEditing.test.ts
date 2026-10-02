@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyTypedLevelMarker,
+  hoistListItemFontSizes,
   caretAtBlockStart,
   isEmptyListItem,
   listsAtSelection,
@@ -344,5 +345,40 @@ describe('switching one list level', () => {
     const item = items(root)[1];
     applyTypedLevelMarker(typedLevelMarker(item, '3.')!, 2);
     expect(root.innerHTML).toBe('<ul><li>Step<ol start="3"><li></li></ol></li></ul>');
+  });
+});
+
+describe('a list item takes the size its text was set to', () => {
+  const hoisted = (html: string) => {
+    const root = content(html);
+    hoistListItemFontSizes(root);
+    return root.innerHTML;
+  };
+
+  it('moves one measured size from the runs onto the item, so the marker follows', () => {
+    expect(hoisted('<ul><li><span style="font-size: 40px;">one</span></li></ul>'))
+      .toBe('<ul><li style="font-size: 40px;"><span>one</span></li></ul>');
+    expect(hoisted('<ol><li><span style="font-size: 40px;">a</span><b style="font-size: 40px;">b</b></li></ol>'))
+      .toBe('<ol><li style="font-size: 40px;"><span>a</span><b>b</b></li></ol>');
+  });
+
+  it('keeps a proportional run proportional inside the hoisted size', () => {
+    expect(hoisted('<ul><li><span style="font-size: 40px;">x<sup style="font-size: 0.7em;">2</sup></span></li></ul>'))
+      .toBe('<ul><li style="font-size: 40px;"><span>x<sup style="font-size: 0.7em;">2</sup></span></li></ul>');
+  });
+
+  it('leaves an item whose line mixes sizes or is partly unsized', () => {
+    const mixed = '<ul><li><span style="font-size: 40px;">big</span><span style="font-size: 20px;">small</span></li></ul>';
+    expect(hoisted(mixed)).toBe(mixed);
+    const partial = '<ul><li><span style="font-size: 40px;">big</span> plain</li></ul>';
+    expect(hoisted(partial)).toBe(partial);
+  });
+
+  it('does not resize a sub-list that inherits from the item', () => {
+    const inherits = '<ul><li><span style="font-size: 40px;">step</span><ul><li>detail</li></ul></li></ul>';
+    expect(hoisted(inherits)).toBe(inherits);
+    // A sub-list with its own size settles first and then no longer depends on it.
+    expect(hoisted('<ul><li><span style="font-size: 40px;">step</span><ul><li><span style="font-size: 30px;">detail</span></li></ul></li></ul>'))
+      .toBe('<ul><li style="font-size: 40px;"><span>step</span><ul><li style="font-size: 30px;"><span>detail</span></li></ul></li></ul>');
   });
 });

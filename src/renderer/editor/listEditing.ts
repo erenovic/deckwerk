@@ -539,3 +539,56 @@ export function applyTypedLevelMarker(
   if (ordered && start && start !== '1' && list.firstElementChild === item) list.setAttribute('start', start);
   return list;
 }
+
+/** A measured font size, as opposed to one relative to its surroundings. */
+const ABSOLUTE_FONT_SIZE = /^\d*\.?\d+(?:px|pt)$/;
+
+/** The nearest measured font size declared between `node` and `stop` (exclusive). */
+function measuredSizeBelow(node: Node, stop: HTMLElement): HTMLElement | null {
+  for (let at = node.parentElement; at && at !== stop; at = at.parentElement) {
+    if (ABSOLUTE_FONT_SIZE.test(at.style.fontSize)) return at;
+  }
+  return null;
+}
+
+/**
+ * Give a list item the size its text was set to, so its marker follows.
+ *
+ * Bullets and numbers are drawn by the item itself and sized in `em` of the
+ * item, while a size set on selected text lands on runs inside it: the text
+ * grew and the marker stayed small. When every character of an item's own
+ * line carries one measured size, that size moves onto the item and off the
+ * runs — the text looks the same and the marker (and the hanging indent it
+ * sets) now matches it. An item is left alone when its line mixes sizes, when
+ * a size is proportional only, or when a sub-list under it inherits its size
+ * from it and would change with it.
+ */
+export function hoistListItemFontSizes(content: HTMLElement): void {
+  // Deepest first: a nested item settles its own size before its parent asks
+  // whether the sub-list depends on the parent's.
+  const items = [...content.querySelectorAll<HTMLElement>('li')].reverse();
+  for (const item of items) {
+    const doc = item.ownerDocument ?? document;
+    const walker = doc.createTreeWalker(item, NodeFilter.SHOW_TEXT);
+    const own: Text[] = [];
+    const nested: Text[] = [];
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const text = node as Text;
+      if (!text.data.replace(/[\s⁠​]/g, '')) continue;
+      if (text.parentElement?.closest('li') === item) own.push(text);
+      else nested.push(text);
+    }
+    if (own.length === 0) continue;
+    const holders = own.map((text) => measuredSizeBelow(text, item));
+    if (holders.some((holder) => holder === null)) continue;
+    const size = holders[0]!.style.fontSize;
+    if (holders.some((holder) => holder!.style.fontSize !== size)) continue;
+    if (holders.some((holder) => holder!.querySelector('ul, ol'))) continue;
+    if (item.style.fontSize !== size && nested.some((text) => measuredSizeBelow(text, item) === null)) continue;
+    item.style.fontSize = size;
+    for (const holder of new Set(holders)) {
+      holder!.style.removeProperty('font-size');
+      if (!holder!.getAttribute('style')?.trim()) holder!.removeAttribute('style');
+    }
+  }
+}

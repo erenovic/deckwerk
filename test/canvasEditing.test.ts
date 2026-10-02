@@ -3825,3 +3825,23 @@ describe('page numbers on the editing canvas', () => {
     expect(shown()).toBeNull();
   });
 });
+
+describe('sizing list text', () => {
+  it('sizes a list item, marker included, when its whole line is resized', () => {
+    const { store, canvas, host } = setup();
+    store.select(['text-1']);
+    store.updateSelected((element) => {
+      if (element.type === 'text') element.html = '<ul><li>first</li><li>second</li></ul>';
+    });
+    canvas.beginTextEdit('text-1');
+    const body = bodyOf(host, 'text-1');
+    const range = document.createRange();
+    range.selectNodeContents(body);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+
+    expect(canvas.applyTextSelectionFontSize(40)).toBe(true);
+    const saved = (store.slide!.elements.find((element) => element.id === 'text-1') as { html: string }).html;
+    expect(saved).toBe('<ul><li style="font-size: 40px;">first</li><li style="font-size: 40px;">second</li></ul>');
+  });
+});

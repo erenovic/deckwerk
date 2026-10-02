@@ -49,12 +49,13 @@ describe('theme panel', () => {
     masters[1].click();
     expect(onEditLayouts).toHaveBeenCalledWith('standard');
 
-    // Roles are always on show; properties are three decisions plus detection.
+    // Roles are always on show; properties are three decisions plus detection,
+    // and whether to replace what the author set by hand.
     const labels = [...panel.element.querySelectorAll<HTMLElement>('.theme-adoption-controls .field-check > span')]
       .map((label) => label.firstChild?.textContent);
     expect(labels).toEqual([
       'Title', 'Body', 'Caption',
-      'Typography', 'Type scale', 'Colour', 'Detect roles for untagged text',
+      'Typography', 'Type scale', 'Colour', 'Detect roles for untagged text', 'Replace my manual changes',
     ]);
     expect(labels).not.toContain('Heading');
   });
@@ -554,5 +555,71 @@ describe('page numbers in the Design tab', () => {
     field('Show page numbers').querySelector('input')!.click();
     field('Show page numbers').querySelector('input')!.click();
     expect(store.get().deck.pageNumbers).toBeNull();
+  });
+});
+
+describe('editing a theme size and applying it', () => {
+  beforeEach(() => document.body.replaceChildren());
+
+  function openWithBody(element: Record<string, unknown> = {}) {
+    const deck = emptyDeck('Sizes');
+    deck.slides[0].elements = [{
+      id: 'body', type: 'text', x: 0, y: 0, w: 800, h: 200, rot: 0, z: 1, opacity: 1,
+      class: ['role-body'], style: {}, html: '<ul><li>one</li><li>two</li></ul>', align: 'left', valign: 'top',
+      ...element,
+    } as never];
+    const store = new EditorStore(deck, '/tmp/theme-sizes');
+    let css = '';
+    const status: string[] = [];
+    const panel = createThemePanel({
+      store,
+      cssEditor: { getValue: () => css, setValue: (value: string) => { css = value; } } as unknown as CssEditor,
+      save: vi.fn(),
+      setStatusMessage: (message: string) => status.push(message),
+      saveThemeCss: (value: string) => { css = value; },
+    });
+    document.body.appendChild(panel.element);
+    const button = (text: RegExp) => [...panel.element.querySelectorAll<HTMLButtonElement>('button')]
+      .find((candidate) => text.test(candidate.textContent ?? ''))!;
+    const group = (name: string) => panel.element.querySelector<HTMLInputElement>(`input[data-group="${name}"]`)!;
+    const box = () => store.get().deck.slides[0].elements[0] as { style: Record<string, string>; overrides?: string[] };
+    const editBodySize = (size: number) => {
+      button(/^Edit…$/).click();
+      const input = [...panel.element.querySelectorAll<HTMLElement>('label')]
+        .find((label) => /^Body size/.test(label.textContent ?? ''))!.querySelector('input')!;
+      input.value = String(size);
+      input.dispatchEvent(new Event('change'));
+      button(/^Done$/).click();
+    };
+    return { store, button, group, box, editBodySize, status, css: () => css };
+  }
+
+  // BUG: Done pinned every box at its old size and Apply, with Type scale off
+  // by default, left the pin in place: an edited size never reached a slide.
+  it('carries an edited size to the selected slide on the next Apply', () => {
+    const { button, group, box, editBodySize, status, css } = openWithBody();
+    expect(group('typeScale').checked).toBe(false);
+    editBodySize(64);
+    // Nothing on screen moves until Apply...
+    expect(box().style['font-size']).toBe('48px');
+    // ...and Apply is now set up to carry the edit.
+    expect(group('typeScale').checked).toBe(true);
+    expect(status.at(-1)).toMatch(/click Apply to update existing slides/);
+
+    button(/^Apply theme/).click();
+    expect(box().style['font-size']).toBeUndefined();
+    expect(css()).toMatch(/\.role-body[^}]*font-size:\s*64px/);
+  });
+
+  it('keeps a size set by hand unless asked to replace manual changes', () => {
+    const { button, group, box, editBodySize } = openWithBody({ style: { 'font-size': '30px' }, overrides: ['font-size'] });
+    editBodySize(64);
+    button(/^Apply theme/).click();
+    expect(box().style['font-size']).toBe('30px');
+
+    group('replaceAuthored').click();
+    button(/^Apply theme/).click();
+    expect(box().style['font-size']).toBeUndefined();
+    expect(box().overrides).toBeUndefined();
   });
 });

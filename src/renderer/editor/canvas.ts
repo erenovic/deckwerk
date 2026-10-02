@@ -48,6 +48,7 @@ import {
   isEmptyListItem,
   isTopLevelListItem,
   applyTypedLevelMarker,
+  hoistListItemFontSizes,
   liftItemOutOfItem,
   listsAtSelection,
   retagList,
@@ -5689,6 +5690,9 @@ export class EditorCanvas {
       selected.replaceWith(span);
       span.appendChild(selected);
     });
+    // A list item whose whole line now has one size takes it, so its bullet
+    // or number grows and shrinks with the text instead of staying put.
+    if (absoluteSize) hoistListItemFontSizes(content);
     normalizeInlineStyleSpans(content);
     // Chromium can move a selected trailing space out of its inline wrapper.
     // When that wrapper sits beside a block (notably a paragraph pasted into a
