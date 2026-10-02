@@ -1,4 +1,5 @@
 import type { Deck, Slide, SlideElement } from './deck.js';
+import { isTitleLayout, layoutChoices, resolveLayoutMaster } from './layoutMasters.js';
 
 /**
  * The smallest description of a deck an agent needs before it can act.
@@ -48,6 +49,11 @@ export interface DeckStyleDigest {
   palette: string[];
   /** Backgrounds actually in use, so a new slide does not clash. */
   backgrounds: Array<{ color: string | null; count: number }>;
+  /**
+   * Every layout a slide can use (`data-layout`): the built-ins, then the
+   * deck's own, each with the placeholder slots it defines (`data-layout-slot`).
+   */
+  layouts: Array<{ id: string; name: string; slots: string[]; custom: boolean; titleSlide: boolean }>;
   /**
    * A slide in this deck's own conventions, ready to be filled in and sent as
    * an `insertSlides` operation. Ids are placeholders and must be replaced.
@@ -106,6 +112,15 @@ export function deckStyleDigest(deck: Deck): DeckStyleDigest {
     colors: deck.themeStyle?.colors ?? null,
     palette: deck.themeStyle?.palette ?? [],
     backgrounds,
+    layouts: layoutChoices(deck).map(({ id, name, custom }) => ({
+      id,
+      name,
+      custom,
+      titleSlide: isTitleLayout(deck, id),
+      slots: resolveLayoutMaster(deck, id).elements
+        .map((element) => (element.type === 'text' ? element.layoutPlaceholder : undefined))
+        .filter((slot): slot is string => Boolean(slot)),
+    })),
     slideTemplate: slideTemplate(deck, roles),
   };
 }

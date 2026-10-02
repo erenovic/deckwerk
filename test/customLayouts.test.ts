@@ -16,6 +16,9 @@ import { diffDecks } from '../src/shared/deckDiff.js';
 import { applyAgentOperations } from '../src/shared/agent.js';
 import { DEFAULT_PAGE_NUMBERS, pageNumberLabel } from '../src/shared/pageNumbers.js';
 import { applySlideLayout } from '../src/renderer/editor/slideLayouts.js';
+import { Inspector } from '../src/renderer/editor/inspector.js';
+import { EditorStore } from '../src/renderer/editor/store.js';
+import { HtmlAuthoringError, slidesFromMeasured } from '../src/shared/htmlSlides.js';
 
 /**
  * Layouts the author makes, beside the three built-in ones: named, with any
@@ -147,5 +150,40 @@ describe('a layout of the deck\'s own', () => {
 
   it('defaults to none on decks saved before layouts of their own existed', () => {
     expect(emptyDeck().customLayouts).toEqual([]);
+  });
+});
+
+describe('using a layout of the deck\'s own', () => {
+  it('is offered in the Props layout picker and applies from there', () => {
+    const deck = deckWith(twoColumns());
+    const store = new EditorStore(deck, '/tmp/custom');
+    const host = document.createElement('div');
+    document.body.replaceChildren(host);
+    new Inspector(host, store);
+    const select = [...host.querySelectorAll<HTMLSelectElement>('select')]
+      .find((candidate) => [...candidate.options].some((option) => option.value === 'standard'))!;
+    const group = select.querySelector('optgroup')!;
+    expect(group.label).toBe('Your layouts');
+    expect([...group.querySelectorAll('option')].map((option) => option.textContent)).toEqual(['Two columns']);
+
+    select.value = 'layout-two-columns';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(store.slide!.layout).toBe('layout-two-columns');
+    expect(store.slide!.elements.filter((element) => element.type === 'text').map((element) => (element as TextEl).layoutPlaceholder))
+      .toEqual(['title', 'body', 'body-2', 'caption']);
+  });
+
+  it('is accepted by HTML authoring, with its numbered slots', () => {
+    const deck = deckWith(twoColumns());
+    const measured = {
+      id: null, name: 'Columns', notes: '', background: { color: null, image: null },
+      morphFromPrevious: false, layout: 'layout-two-columns', ownBackground: false, nodes: [],
+    };
+    const [slide] = slidesFromMeasured(deck, [measured as never]);
+    expect(slide.layout).toBe('layout-two-columns');
+    expect(slide.elements.some((element) => element.type === 'text' && element.layoutPlaceholder === 'body-2')).toBe(true);
+    expect(() => slidesFromMeasured(deck, [{ ...measured, layout: 'nope' } as never]))
+      .toThrow(/Use freeform, standard, title, layout-two-columns/);
+    expect(HtmlAuthoringError).toBeDefined();
   });
 });

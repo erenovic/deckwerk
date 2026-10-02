@@ -394,8 +394,8 @@ export function capabilities(): Capability[] {
       when: 'Section dividers; hiding a slide; picking a geometry preset.',
       notes: [
         'A background image covers the canvas; text on it needs contrast.',
-        "layout is a geometry preset — 'freeform' (default), 'standard' (title + body) or 'title' — and themes may decorate it but never own its positions.",
-        'layoutMasterId and layoutPlaceholder are editor-maintained links between fixed layout masters and their title/body placeholders; ordinary authored elements should leave them unset.',
+        "layout is a geometry preset — 'freeform' (default), 'standard' (title + body), 'title', or the id of one of the deck's own layouts (deck.customLayouts, made in the layout editor) — and themes may decorate it but never own its positions.",
+        "layoutMasterId and layoutPlaceholder are editor-maintained links between layout masters and their placeholders (slots 'title', 'subtitle', 'body', 'caption', numbered like 'body-2' for columns); ordinary authored elements should leave them unset.",
         'skipped: true keeps a slide in the deck and editable but steps over it when presenting. Use it instead of deleting a slide you may want back.',
         'notes is the presenter-view script for the slide; name is the label in the slide rail.',
       ],

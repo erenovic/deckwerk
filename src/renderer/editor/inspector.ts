@@ -414,6 +414,19 @@ export class Inspector {
       option.textContent = label;
       layoutSelect.appendChild(option);
     }
+    // The deck's own layouts, after the built-ins.
+    const ownLayouts = this.store.get().deck.customLayouts;
+    if (ownLayouts.length > 0) {
+      const group = document.createElement('optgroup');
+      group.label = 'Your layouts';
+      for (const own of ownLayouts) {
+        const option = document.createElement('option');
+        option.value = own.id;
+        option.textContent = own.name || 'Untitled layout';
+        group.appendChild(option);
+      }
+      layoutSelect.appendChild(group);
+    }
     const editLayouts = document.createElement('option');
     editLayouts.value = '__edit_layouts__';
     editLayouts.textContent = 'Edit layouts…';

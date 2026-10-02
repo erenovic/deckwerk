@@ -667,3 +667,27 @@ describe('paragraph spacing in the Design tab', () => {
     expect(deck.themeStyle?.paragraphSpacing).toBe(18);
   });
 });
+
+describe('layouts of the deck’s own in the Design tab', () => {
+  beforeEach(() => document.body.replaceChildren());
+
+  it('shows them as tiles after the built-ins, each opening the editor on itself', () => {
+    const deck = emptyDeck('Tiles');
+    deck.customLayouts = [{
+      id: 'layout-cover', name: 'Cover', basedOn: 'title', titleSlide: true,
+      background: { color: null, image: null }, elements: [],
+    }];
+    const store = new EditorStore(deck, '/tmp/tiles');
+    const onEditLayouts = vi.fn();
+    const panel = createThemePanel({
+      store,
+      cssEditor: { getValue: () => '', setValue: vi.fn() } as unknown as CssEditor,
+      save: vi.fn(), setStatusMessage: vi.fn(), saveThemeCss: vi.fn(), onEditLayouts,
+    });
+    document.body.appendChild(panel.element);
+    const tiles = [...panel.element.querySelectorAll<HTMLButtonElement>('.design-master')];
+    expect(tiles.map((tile) => tile.querySelector('em')?.textContent)).toEqual(['Freeform', 'Title + Body', 'Title', 'Cover']);
+    tiles[3].click();
+    expect(onEditLayouts).toHaveBeenCalledWith('layout-cover');
+  });
+});

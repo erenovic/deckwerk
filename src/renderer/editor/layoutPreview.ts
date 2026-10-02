@@ -1,5 +1,5 @@
-import type { LayoutMaster, Slide, SlideElement } from '@shared/deck.js';
-import { defaultLayoutMasters, type FixedLayout } from '@shared/layoutMasters.js';
+import type { Deck, LayoutMaster, Slide, SlideElement } from '@shared/deck.js';
+import { resolveLayoutMaster, slotKind, type FixedLayout } from '@shared/layoutMasters.js';
 import type { ThemePreset } from '@shared/themes.js';
 import { renderSlide } from '../player/render.js';
 
@@ -18,14 +18,19 @@ export const LAYOUT_LABELS_BY_ID: Record<FixedLayout, string> = {
   title: 'Title',
 };
 
-export function previewSlide(layout: FixedLayout, master: LayoutMaster): Slide {
+/** Sample copy a design surface shows in each kind of slot. */
+const SAMPLE_COPY = {
+  title: 'The big idea',
+  subtitle: 'A line that frames it',
+  body: 'Readable body copy for the story.',
+  caption: 'Supporting detail',
+} as const;
+
+export function previewSlide(layout: string, master: LayoutMaster, name?: string): Slide {
   const elements = revealPlaceholders(structuredClone(master.elements));
   for (const element of elements) {
-    if (element.type !== 'text') continue;
-    if (element.layoutPlaceholder === 'title') element.html = 'The big idea';
-    else if (element.layoutPlaceholder === 'body') {
-      element.html = 'Readable body copy for the story.';
-    }
+    if (element.type !== 'text' || !element.layoutPlaceholder) continue;
+    element.html = SAMPLE_COPY[slotKind(element.layoutPlaceholder)];
   }
   if (layout === 'freeform') {
     elements.push({
@@ -51,7 +56,7 @@ export function previewSlide(layout: FixedLayout, master: LayoutMaster): Slide {
   }
   return {
     id: `preview-${layout}`,
-    name: LAYOUT_LABELS_BY_ID[layout],
+    name: name ?? LAYOUT_LABELS_BY_ID[layout as FixedLayout] ?? layout,
     background: structuredClone(master.background),
     notes: '',
     layout: 'freeform',
@@ -106,14 +111,15 @@ export function revealPlaceholders<T extends SlideElement>(elements: T[]): T[] {
  * width. Returns the frame and the observer keeping it scaled.
  */
 export function masterTile(
-  layout: FixedLayout,
-  masters: NonNullable<import('@shared/deck.js').Deck['layoutMasters']> | null | undefined,
+  layout: string,
+  masters: Deck['layoutMasters'] | undefined,
   theme: ThemePreset | null,
   options: { caption?: boolean } = {},
+  customLayouts: Deck['customLayouts'] = [],
 ): { frame: HTMLElement; observer: ResizeObserver | null } {
   const frame = document.createElement('span');
   frame.className = 'design-preview-frame';
-  const master = (masters ?? defaultLayoutMasters())[layout];
+  const master = resolveLayoutMaster({ layoutMasters: masters ?? null, customLayouts }, layout);
   const slide = previewSlide(layout, master);
   if (options.caption === false) {
     slide.elements = slide.elements.filter((element) => !element.id.endsWith('-caption'));

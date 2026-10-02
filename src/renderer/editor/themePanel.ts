@@ -26,7 +26,8 @@ import { colorField } from './colorPicker.js';
 import type { CssEditor } from './cssEditor.js';
 import { fontFamilyField } from './fontPicker.js';
 import { numberField } from './inspector.js';
-import { FIXED_LAYOUTS, LAYOUT_LABELS_BY_ID, masterTile } from './layoutPreview.js';
+import { masterTile } from './layoutPreview.js';
+import { layoutChoices } from '@shared/layoutMasters.js';
 import { barButton } from './shellWiring.js';
 import type { EditorStore } from './store.js';
 import {
@@ -442,18 +443,19 @@ export function createThemePanel(deps: ThemePanelDeps): ThemePanel {
     if (!mastersHost) return;
     const deck = store.get().deck;
     const theme = currentTheme();
-    const key = JSON.stringify([deck.layoutMasters, theme?.id, theme?.colors, theme?.fonts]);
+    const key = JSON.stringify([deck.layoutMasters, deck.customLayouts, theme?.id, theme?.colors, theme?.fonts]);
     if (!force && key === mastersKey) return;
     mastersKey = key;
     mastersHost.replaceChildren();
-    for (const layout of FIXED_LAYOUTS) {
+    // The built-ins, then the deck's own layouts, each opening the editor on itself.
+    for (const { id: layout, name } of layoutChoices(deck)) {
       const item = document.createElement('button');
       item.type = 'button';
       item.className = 'layout-popover-item design-master';
-      item.setAttribute('aria-label', `Edit ${LAYOUT_LABELS_BY_ID[layout]} layout`);
-      const { frame } = masterTile(layout, deck.layoutMasters, theme, { caption: false });
+      item.setAttribute('aria-label', `Edit ${name} layout`);
+      const { frame } = masterTile(layout, deck.layoutMasters, theme, { caption: false }, deck.customLayouts);
       const caption = document.createElement('em');
-      caption.textContent = LAYOUT_LABELS_BY_ID[layout];
+      caption.textContent = name;
       item.append(frame, caption);
       item.addEventListener('click', () => deps.onEditLayouts?.(layout));
       mastersHost.appendChild(item);

@@ -229,3 +229,111 @@ describe('leaving the layout editor', () => {
     expect(save).not.toHaveBeenCalled();
   });
 });
+
+describe('layouts of the deck’s own in the layout editor', () => {
+  beforeEach(() => {
+    document.head.replaceChildren();
+    document.body.replaceChildren();
+    installDomShims();
+  });
+
+  const railNames = () => [...document.querySelectorAll('.layout-editor-rail h3, .layout-editor-rail-name')]
+    .map((node) => node.textContent);
+  const settings = () => document.querySelector<HTMLElement>('.layout-settings')!;
+  const settingsButton = (label: string) => [...settings().querySelectorAll<HTMLButtonElement>('button')]
+    .find((button) => button.textContent === label)!;
+
+  it('starts a layout from the selected one, lets it be renamed and given a second body, and saves it on Done', () => {
+    const { workspace, store } = build();
+    workspace.openLayoutEditor('standard');
+    expect(railNames()).toEqual(['Built-in', 'Freeform', 'Title + Body', 'Title', 'Your layouts']);
+    // With nothing selected the panel is the layout's settings, not an empty inspector.
+    expect(settings().hidden).toBe(false);
+    expect(settings().querySelector<HTMLInputElement>('input[type="text"]')!.disabled).toBe(true);
+
+    clickInOverlay('.layout-editor-rail', '+ New layout');
+    expect(railNames()).toEqual(['Built-in', 'Freeform', 'Title + Body', 'Title', 'Your layouts', 'New layout']);
+
+    const name = settings().querySelector<HTMLInputElement>('input[type="text"]')!;
+    expect(name.disabled).toBe(false);
+    name.value = 'Two columns';
+    name.dispatchEvent(new Event('change'));
+    settingsButton('+ Body').click();
+    // Adding selects the new placeholder; deselect to come back to the settings.
+    clickInOverlay('.layout-editor-rail', '+ New layout');
+    expect(railNames().slice(5)).toEqual(['Two columns', 'New layout']);
+
+    clickInOverlay('.layout-editor-actions', 'Done');
+    const own = store.get().deck.customLayouts;
+    expect(own.map((layout) => layout.name)).toEqual(['Two columns', 'New layout']);
+    expect(own[0].basedOn).toBe('standard');
+    expect(own[0].elements.map((element) => element.type === 'text' ? element.layoutPlaceholder : null))
+      .toEqual(['title', 'body', 'body-2']);
+    expect(own[0].elements[2].class).toEqual(['role-body', 'placeholder']);
+    store.undo();
+    expect(store.get().deck.customLayouts).toEqual([]);
+  });
+
+  it('marks a layout of its own as a title slide', () => {
+    const { workspace, store } = build();
+    workspace.openLayoutEditor('title');
+    clickInOverlay('.layout-editor-rail', '+ New layout');
+    const titleBox = settings().querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    // A copy of Title starts as a title slide; it can be switched off.
+    expect(titleBox.checked).toBe(true);
+    titleBox.click();
+    clickInOverlay('.layout-editor-actions', 'Done');
+    expect(store.get().deck.customLayouts[0]).toMatchObject({ basedOn: 'title', titleSlide: false });
+  });
+
+  it('keeps built-in placeholders fixed and lets its own ones be deleted', () => {
+    const { workspace } = build();
+    workspace.openLayoutEditor('standard');
+    expect(settingsButton('+ Body').disabled).toBe(true);
+    clickInOverlay('.layout-editor-rail', '+ New layout');
+    expect(settingsButton('+ Body').disabled).toBe(false);
+    expect(settingsButton('+ Title').disabled, 'a layout has one title').toBe(true);
+  });
+
+  it('moves the slides of a deleted layout to the built-in it was made from, content kept', () => {
+    const deck = emptyDeck('Delete');
+    deck.layoutMasters = defaultLayoutMasters();
+    deck.customLayouts = [{
+      id: 'layout-cover', name: 'Cover', basedOn: 'title', titleSlide: true,
+      background: { color: '#123456', image: null },
+      elements: structuredClone(defaultLayoutMasters().title.elements),
+    }];
+    applySlideLayout(deck.slides[0], 'layout-cover', deck.layoutMasters, deck.customLayouts);
+    const title = deck.slides[0].elements.find((element) => element.type === 'text')!;
+    if (title.type === 'text') {
+      title.html = 'Our talk';
+      title.class = title.class.filter((name) => name !== 'placeholder');
+    }
+    const { workspace, store } = build(deck);
+    workspace.openLayoutEditor('layout-cover');
+    expect(settings().textContent).toContain('Used by 1 slide.');
+    settingsButton('Delete layout').click();
+    clickInOverlay('.layout-editor-actions', 'Done');
+
+    const slide = store.get().deck.slides[0];
+    expect(store.get().deck.customLayouts).toEqual([]);
+    expect(slide.layout).toBe('title');
+    expect(slide.elements.find((element) => element.type === 'text')).toMatchObject({ html: 'Our talk' });
+  });
+
+  it('turns a second body into two columns and shows the new placeholder\u2019s properties', () => {
+    const { workspace } = build();
+    workspace.openLayoutEditor('standard');
+    clickInOverlay('.layout-editor-rail', '+ New layout');
+    settingsButton('+ Body').click();
+    // The placeholder is selected: the inspector, not the settings, is showing,
+    // and it shows that text box's properties.
+    expect(settings().hidden).toBe(true);
+    const inspector = document.querySelector<HTMLElement>('.layout-editor-inspector-inner')!;
+    expect(inspector.hidden).toBe(false);
+    expect(inspector.textContent).toContain('Geometry');
+    const columns = [...document.querySelectorAll<HTMLElement>('.layout-editor-canvas .slide-layer [data-element-id]')]
+      .map((node) => node.style.left).filter(Boolean);
+    expect(columns.length).toBeGreaterThanOrEqual(3);
+  });
+});

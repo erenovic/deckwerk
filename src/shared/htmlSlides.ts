@@ -79,7 +79,7 @@ export interface MeasuredSlide {
   background: { color: string | null; image: string | null };
   morphFromPrevious: boolean;
   morphDuration?: number;
-  /** `data-layout` on the section: one of the deck's fixed layouts. */
+  /** `data-layout` on the section: a built-in layout or the id of one of the deck's own. */
   layout?: string;
   /** With `layout`: the section set its own background inline. */
   ownBackground?: boolean;

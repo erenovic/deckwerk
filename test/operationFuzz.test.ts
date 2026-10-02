@@ -5,9 +5,11 @@ import {
   defaultLayoutMasters,
   layoutMaster,
   layoutSlotOf,
+  promptCopy,
   syncDeckWithLayoutMasters,
   type FixedLayout,
 } from '../src/shared/layoutMasters.js';
+import { installLayouts, placeholderFor, tileBodyPlaceholders } from '../src/renderer/editor/layoutEditorModel.js';
 import { applySlideLayout } from '../src/renderer/editor/slideLayouts.js';
 import { EditorCanvas } from '../src/renderer/editor/canvas.js';
 import { EditorStore } from '../src/renderer/editor/store.js';
@@ -79,7 +81,11 @@ function seedElements(): SlideElement[] {
 type Op = { name: string; run: () => void };
 
 /** Prompt copy the layouts seed placeholders with; anything else is authored. */
-const PROMPT_COPY = new Set(['Slide title', 'Body text', 'New text']);
+// Every prompt a placeholder can be created holding: each slot kind, numbered
+// or not (see promptCopy), plus the Text tool's.
+const PROMPT_COPY = new Set(['New text', ...['title', 'subtitle', 'body', 'caption']
+  .flatMap((kind) => [kind, ...[2, 3, 4, 5, 6, 7, 8, 9].map((n) => `${kind}-${n}`)])
+  .map(promptCopy)]);
 
 function buildOps(store: EditorStore, canvas: EditorCanvas, random: () => number): Op[] {
   const pick = <T>(items: T[]): T => items[Math.floor(random() * items.length)];
@@ -317,11 +323,35 @@ function buildOps(store: EditorStore, canvas: EditorCanvas, random: () => number
       name: 'switch slide layout',
       run: () => {
         const index = store.get().slideIndex;
-        const layout = pick(['freeform', 'standard', 'title'] as FixedLayout[]);
+        const own = store.get().deck.customLayouts.map((custom) => custom.id);
+        const layout = pick(['freeform', 'standard', 'title', ...own]);
         store.commit((deck: Deck) => {
-          applySlideLayout(deck.slides[index], layout, deck.layoutMasters);
+          applySlideLayout(deck.slides[index], layout, deck.layoutMasters, deck.customLayouts);
         }, { label: `apply ${layout} layout` });
       },
+    },
+    // A layout of the deck's own, as the layout editor's Done installs it: two
+    // body columns and a caption, so slot numbering and the slots a built-in
+    // lacks meet ordinary edits and layout switches.
+    {
+      name: 'install own layout',
+      run: () => store.commit((deck: Deck) => {
+        const masters = deck.layoutMasters ?? defaultLayoutMasters();
+        const columns = structuredClone(masters.standard.elements).map((element) => ({ ...element, id: `own-${element.id}` }));
+        columns.push(placeholderFor('body-2', deck.canvas, 12), placeholderFor('caption', deck.canvas, 13));
+        tileBodyPlaceholders(columns, deck.canvas);
+        installLayouts(deck, masters, [...deck.customLayouts, {
+          id: `layout-own-${deck.customLayouts.length}`, name: 'Columns', basedOn: 'standard', titleSlide: false,
+          background: { color: null, image: null }, elements: columns,
+        }]);
+      }, { label: 'install own layout' }),
+    },
+    {
+      name: 'delete own layout',
+      run: () => store.commit((deck: Deck) => {
+        if (deck.customLayouts.length === 0 || !deck.layoutMasters) return;
+        installLayouts(deck, deck.layoutMasters, deck.customLayouts.slice(1));
+      }, { label: 'delete own layout' }),
     },
     {
       name: 'edit layout master placeholder',
