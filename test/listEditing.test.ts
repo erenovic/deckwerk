@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import {
+  applyTypedLevelMarker,
   caretAtBlockStart,
   isEmptyListItem,
+  listsAtSelection,
+  retagList,
+  typedLevelMarker,
   isTopLevelListItem,
   listItemParagraphs,
   mergeParagraphIntoList,
@@ -283,5 +287,62 @@ describe('moving an indented item out one level', () => {
     const root = content('<ul><li>one</li></ul>');
     expect(outdentListItem(items(root)[0])).toBe(false);
     expect(root.innerHTML).toBe('<ul><li>one</li></ul>');
+  });
+});
+
+describe('switching one list level', () => {
+  const nested = () => content('<ul><li>Step<ul><li>detail one</li><li>detail two</li></ul></li><li>Next</li></ul>');
+
+  it('finds the level the caret is on, not the levels around it', () => {
+    const root = nested();
+    const range = document.createRange();
+    range.setStart(items(root)[1].firstChild!, 3);
+    range.collapse(true);
+    expect(listsAtSelection(root, range).map((list) => list.textContent)).toEqual(['detail onedetail two']);
+
+    range.setStart(items(root)[0].firstChild!, 2);
+    range.collapse(true);
+    expect(listsAtSelection(root, range)).toEqual([root.firstElementChild]);
+  });
+
+  it('counts an item only when the selection covers its own text', () => {
+    const root = nested();
+    const details = document.createRange();
+    details.setStart(items(root)[1].firstChild!, 0);
+    details.setEnd(items(root)[2].firstChild!, 4);
+    // Only the details: the step that holds them keeps its level.
+    expect(listsAtSelection(root, details).map((list) => list.tagName + list.children.length)).toEqual(['UL2']);
+
+    const all = document.createRange();
+    all.selectNodeContents(root);
+    expect(listsAtSelection(root, all)).toHaveLength(2);
+  });
+
+  it('retags one list and leaves its sub-lists and attributes alone', () => {
+    const root = nested();
+    const top = root.firstElementChild as HTMLElement;
+    top.setAttribute('class', 'steps');
+    retagList(top, true);
+    expect(root.innerHTML).toBe('<ol class="steps"><li>Step<ul><li>detail one</li><li>detail two</li></ul></li><li>Next</li></ol>');
+    retagList(root.firstElementChild as HTMLElement, false);
+    expect(root.firstElementChild!.tagName).toBe('UL');
+  });
+
+  it('reads a typed marker of the other kind only', () => {
+    const root = content('<ul><li>-</li></ul><ol><li>-</li></ol>');
+    const [bullet, number] = items(root);
+    expect(typedLevelMarker(bullet, '1.')).toMatchObject({ ordered: true, start: '1' });
+    expect(typedLevelMarker(bullet, '4)')).toMatchObject({ ordered: true, start: '4' });
+    expect(typedLevelMarker(bullet, '-'), 'a dash in a bullet is just text').toBeNull();
+    expect(typedLevelMarker(number, '*')).toMatchObject({ ordered: false });
+    expect(typedLevelMarker(number, '1.')).toBeNull();
+    expect(typedLevelMarker(bullet, '1. go'), 'only a marker on its own').toBeNull();
+  });
+
+  it('switches the level, strips the marker and keeps a typed start number', () => {
+    const root = content('<ul><li>Step<ul><li>3.</li></ul></li></ul>');
+    const item = items(root)[1];
+    applyTypedLevelMarker(typedLevelMarker(item, '3.')!, 2);
+    expect(root.innerHTML).toBe('<ul><li>Step<ol start="3"><li></li></ol></li></ul>');
   });
 });

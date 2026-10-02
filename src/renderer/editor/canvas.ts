@@ -46,7 +46,12 @@ import {
   indentListItem,
   isEmptyListItem,
   isTopLevelListItem,
+  applyTypedLevelMarker,
   liftItemOutOfItem,
+  listsAtSelection,
+  retagList,
+  typedLevelMarker,
+  type TypedLevelMarker,
   outdentListItem,
   mergeParagraphIntoList,
   parentListItem,
@@ -208,6 +213,39 @@ function visibleText(value: string): string {
  * space and text, with the caret after all of it). Both leave real lists
  * alone — the browser already continues those.
  */
+/**
+ * A `1.` or `-` typed as the whole of a list item's own line, with the caret
+ * at its end: the space after it switches that level's kind (see
+ * `typedLevelMarker`).
+ */
+function typedLevelMarkerAtCaret(
+  body: HTMLElement,
+  selection: Selection | null,
+): { marker: TypedLevelMarker; length: number } | null {
+  if (!selection?.isCollapsed || selection.rangeCount === 0) return null;
+  const range = selection.getRangeAt(0);
+  if (!body.contains(range.startContainer)) return null;
+  const at = range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement;
+  const item = at?.closest<HTMLElement>('li');
+  if (!item || !body.contains(item)) return null;
+  const ownText = (upTo: Range | null): string => {
+    const walker = document.createTreeWalker(item, NodeFilter.SHOW_TEXT);
+    let text = '';
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.parentElement?.closest('li') !== item) continue;
+      const data = (node as Text).data;
+      if (upTo && node === upTo.startContainer) return text + data.slice(0, upTo.startOffset);
+      if (upTo && upTo.comparePoint(node, 0) > 0) return text;
+      text += data;
+    }
+    return text;
+  };
+  const line = visibleText(ownText(null));
+  if (visibleText(ownText(range)) !== line) return null;
+  const marker = typedLevelMarker(item, line);
+  return marker ? { marker, length: line.length } : null;
+}
+
 function typedListMarkerAtCaret(
   body: HTMLElement,
   selection: Selection | null,
@@ -253,6 +291,30 @@ function typedListMarkerAtCaret(
  * continues; without it (the space after `-`) the caret stays where the
  * marker was, at the start of the new item, ready for its text.
  */
+/**
+ * Switch the typed marker's level and leave the caret at the start of the
+ * now-empty item, where the next keystroke writes its text.
+ */
+function switchTypedLevel(marker: TypedLevelMarker, length: number): Range {
+  applyTypedLevelMarker(marker, length, (character) => character === TYPING_STYLE_SENTINEL);
+  const { item } = marker;
+  const own = [...item.childNodes].filter((node) => !(node instanceof Element && /^(UL|OL)$/.test(node.tagName)));
+  if (visibleText(own.map((node) => node.textContent ?? '').join('')) === '' && !own.some((node) => node instanceof HTMLBRElement)) {
+    // An item with no text has no line to stand on; the placeholder gives
+    // the caret one, as an empty list item has everywhere else.
+    item.insertBefore(document.createElement('br'), item.firstChild);
+  }
+  const range = document.createRange();
+  const first = item.firstChild;
+  if (first instanceof Text) range.setStart(first, 0);
+  else range.setStart(item, 0);
+  range.collapse(true);
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  return range;
+}
+
 function convertTypedListMarker(
   body: HTMLElement,
   marker: TypedListMarker,
@@ -3771,6 +3833,15 @@ export class EditorCanvas {
         || event.isComposing
       ) return;
       if (event.data === ' ') {
+        // In an empty item of one kind, `1. ` or `- ` switches that level.
+        const levelMarker = typedLevelMarkerAtCaret(body, window.getSelection());
+        if (levelMarker) {
+          event.preventDefault();
+          this.textSelectionRange = switchTypedLevel(levelMarker.marker, levelMarker.length).cloneRange();
+          onInput();
+          pushLive();
+          return;
+        }
         // The space after a typed `-`, `*` or `1.` at the start of a line is
         // the moment it becomes a bullet — not the Return at the end of it.
         const typedMarker = typedListMarkerAtCaret(body, window.getSelection(), 'space');
@@ -3828,7 +3899,13 @@ export class EditorCanvas {
       // Shift keeps these clear of the browser's own Cmd/Ctrl +/- zoom, and
       // the shifted characters are matched alongside the unshifted ones
       // because a US layout reports "+"/"_" while others report "="/"-".
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && ['=', '+', '-', '_'].includes(e.key)) {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && (e.code === 'Digit7' || e.code === 'Digit8')) {
+        // Cmd/Ctrl+Shift+7 numbers and +8 bullets the level the caret is in,
+        // the keys word processors use. By key position, not character, since
+        // the shifted characters differ between layouts.
+        e.preventDefault();
+        this.applyTextSelectionListStyle(e.code === 'Digit7' ? 'Numbered' : 'Bulleted');
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && ['=', '+', '-', '_'].includes(e.key)) {
         e.preventDefault();
         this.toggleTextSelectionFormat(
           e.key === '=' || e.key === '+' ? 'superscript' : 'subscript',
@@ -4990,6 +5067,12 @@ export class EditorCanvas {
     );
     const range = content ? this.listStyleRange(content) : null;
     if (!content || !range) return null;
+    // In a list, the List control shows the kind of the level(s) being edited.
+    const levels = listsAtSelection(content, range);
+    if (levels.length > 0) {
+      const kinds = new Set(levels.map((list) => (list.tagName === 'OL' ? 'Numbered' as const : 'Bulleted' as const)));
+      return kinds.size === 1 ? [...kinds][0] : null;
+    }
     const styles = [...content.children].flatMap((child) => {
       try {
         const touches = range.collapsed
@@ -5207,6 +5290,9 @@ export class EditorCanvas {
     // the previous choice touched.
     const startedCollapsed = range.collapsed;
     const caretOffsets = startedCollapsed ? this.textOffsetsForRange(content, range) : null;
+    // A selection across list levels is kept as it was: retagging a level
+    // changes markers, not text, so the same characters stay selected.
+    let levelOffsets: ReturnType<typeof this.textOffsetsForRange> = null;
 
     const selectedBlocks = [...content.children].filter((child) => {
       try {
@@ -5274,28 +5360,24 @@ export class EditorCanvas {
         inserted.push(...replacements);
         changed = true;
       }
-      const retagList = (list: HTMLElement): HTMLElement => {
-        if (list.tagName === targetTag) return list;
-        const replacement = document.createElement(targetTag.toLowerCase());
-        for (const attr of [...list.attributes]) {
-          if (targetTag === 'UL' && attr.name === 'start') continue;
-          replacement.setAttribute(attr.name, attr.value);
+      if (selectedLists.length > 0) {
+        // Each level keeps its own kind: only the lists whose own items the
+        // caret or selection is in change, never the sub-lists under them, so
+        // numbered steps can hold bulleted details and the other way round.
+        // A pasted list whose visible items live in a sub-list still converts,
+        // because those items are the ones the author is standing in.
+        const levels = listsAtSelection(content, range, startedCollapsed);
+        if (levels.length === 0) return this.declineLiveTextFormat();
+        levelOffsets = startedCollapsed ? null : this.textOffsetsForRange(content, range);
+        for (const list of levels) {
+          if (list.tagName === targetTag) continue;
+          retagList(list, targetTag === 'OL');
+          changed = true;
         }
-        while (list.firstChild) replacement.appendChild(list.firstChild);
-        list.replaceWith(replacement);
-        changed = true;
-        return replacement;
-      };
-      for (const block of selectedLists) {
-        if (!/^(OL|UL)$/.test(block.tagName)) continue;
-        // Sub-lists are part of the list you are converting. Leaving them at
-        // their old kind is what made converting a pasted, nested list look
-        // like it did nothing at all: the visible items live in the sub-list.
-        const converted = retagList(block);
-        for (const nested of [...converted.querySelectorAll<HTMLElement>('ul, ol')]) {
-          retagList(nested);
+        inserted.push(...selectedLists.filter((block) => block.isConnected));
+        if (inserted.length === 0) {
+          inserted.push(...[...content.children].filter((child) => /^(OL|UL)$/.test(child.tagName)));
         }
-        inserted.push(converted);
       }
       // Merge adjacent lists created from a multi-paragraph selection.
       for (let index = 1; index < inserted.length; index++) {
@@ -5331,10 +5413,10 @@ export class EditorCanvas {
     if (!changed) return true;
     if (inserted.length === 0) return false;
 
-    if (caretOffsets) {
+    if (caretOffsets || levelOffsets) {
       // List markers are not text, so the offsets still point at the same
       // characters they did before the conversion.
-      this.restoreTextRange(content, caretOffsets);
+      this.restoreTextRange(content, (caretOffsets ?? levelOffsets)!);
     } else {
       const next = document.createRange();
       next.setStartBefore(inserted[0]);

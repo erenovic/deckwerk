@@ -1,13 +1,11 @@
 import type { Deck, MediaEffect, Slide, SlideElement } from '@shared/deck.js';
 import {
-  paragraphsToList,
-  paragraphsToOrderedList,
-  changeListType,
+  applyListStyleToHtml,
   hasList,
   listMarkerColorState,
-  listToParagraphs,
   setListMarkerColor,
   type ListMarkerColorState,
+  type ListStyle,
 } from '@shared/paragraphs.js';
 import type {
   TableBorderPreset,
@@ -57,20 +55,10 @@ interface TextPaintInfo {
   clear: { kind: 'theme' | 'css'; label: string };
 }
 
-type ListStyle = 'None' | 'Bulleted' | 'Numbered';
-
 function listStyleOfHtml(html: string): ListStyle {
   if (hasList(html, true)) return 'Numbered';
   if (hasList(html, false)) return 'Bulleted';
   return 'None';
-}
-
-function applyListStyleToHtml(html: string, style: ListStyle): string {
-  if (style === 'None') return listToParagraphs(html);
-  if (style === 'Numbered') {
-    return hasList(html, false) ? changeListType(html, true) : paragraphsToOrderedList(html);
-  }
-  return hasList(html, true) ? changeListType(html, false) : paragraphsToList(html);
 }
 
 /** Display labels for the video behaviour flags. */

@@ -1,4 +1,5 @@
 import type { SlideElement } from '@shared/deck.js';
+import { applyListStyleToHtml } from '@shared/paragraphs.js';
 import { elementFollowsLayout, layoutGeometryFor, realignElementToLayout } from '@shared/layoutMasters.js';
 import { EditorCanvas } from './canvas.js';
 import { setCircularMask } from '@shared/mediaMask.js';
@@ -361,6 +362,22 @@ export function bindEditorKeys(deps: ShellDeps, clipboard: ClipboardActions): vo
     if (mod && e.key.toLowerCase() === 'd') {
       e.preventDefault();
       duplicateSelection(store);
+      return;
+    }
+    // Cmd/Ctrl+Shift+7 / 8 on selected text boxes: their top-level list, the
+    // same as the List control. Inside the text the canvas handles them per level.
+    if (mod && e.shiftKey && !e.altKey && (e.code === 'Digit7' || e.code === 'Digit8')) {
+      const texts = store.selectedElements()
+        .filter((element) => element.type === 'text' && !/<table\b/i.test(element.html));
+      if (texts.length > 0) {
+        e.preventDefault();
+        const style = e.code === 'Digit7' ? 'Numbered' : 'Bulleted';
+        store.updateSelected((element) => {
+          if (element.type === 'text' && !/<table\b/i.test(element.html)) {
+            element.html = applyListStyleToHtml(element.html, style);
+          }
+        }, { label: `Change list style to ${style.toLowerCase()}` });
+      }
       return;
     }
     if (mod && ['b', 'i', 'u'].includes(e.key.toLowerCase())) {
