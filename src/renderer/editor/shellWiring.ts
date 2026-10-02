@@ -298,6 +298,15 @@ export function bindEditorKeys(deps: ShellDeps, clipboard: ClipboardActions): vo
   // Find works from anywhere, mid-edit included. It listens in the capture
   // phase because a live text edit stops every key from bubbling past the
   // box; the browser client would otherwise open the browser's own find bar.
+  // Cmd/Ctrl+' shows or hides the placement grid (View › Show Grid), from
+  // anywhere, text editing included, like find.
+  window.addEventListener('keydown', (e) => {
+    if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey || e.code !== 'Quote') return;
+    if (document.querySelector('[aria-modal="true"]')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    canvas.toggleGrid();
+  }, true);
   window.addEventListener('keydown', (e) => {
     if (!deps.openFind || document.querySelector('[aria-modal="true"]')) return;
     if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'f') return;

@@ -218,6 +218,24 @@ function visibleText(value: string): string {
  * space and text, with the caret after all of it). Both leave real lists
  * alone — the browser already continues those.
  */
+const GRID_PREFERENCE_KEY = 'deckwerk.editor.grid';
+
+function readGridPreference(): boolean {
+  try {
+    return window.localStorage.getItem(GRID_PREFERENCE_KEY) === 'on';
+  } catch {
+    return false;
+  }
+}
+
+function writeGridPreference(shown: boolean): void {
+  try {
+    window.localStorage.setItem(GRID_PREFERENCE_KEY, shown ? 'on' : 'off');
+  } catch {
+    // Storage can be unavailable; the grid still toggles for this session.
+  }
+}
+
 /**
  * Write HTML and plain text to the system clipboard from inside a key
  * handler, where the browser treats `copy` as user-initiated. Works without
@@ -692,6 +710,10 @@ export class EditorCanvas {
   private store: EditorStore;
   private host: HTMLElement;
   private stage: HTMLElement;
+  /** The faint placement grid over the slide, while View › Show Grid is on. */
+  private grid: HTMLElement | null = null;
+  /** Told when the grid is shown or hidden, so the View menu can follow. */
+  onGridChange: ((shown: boolean) => void) | null = null;
   /** The page number drawn over the slide, and what it was drawn from. */
   private pageNumber: { node: HTMLElement | null; key: string } = { node: null, key: '' };
   private slideLayer: HTMLElement;
@@ -931,6 +953,7 @@ export class EditorCanvas {
     // numbering settings, neither of which a slide edit changes, so it is kept
     // apart from the slide render and refreshed on every store change.
     store.subscribe(() => this.syncPageNumber());
+    if (readGridPreference()) this.setGridVisible(true);
     this.render();
   }
 
@@ -2053,6 +2076,38 @@ export class EditorCanvas {
       if (isCommandModifierKey(ev.key) || !commandModifier(ev)) this.setRotationModifier(false);
     });
     window.addEventListener('blur', () => this.setRotationModifier(false));
+  }
+
+  isGridVisible(): boolean {
+    return this.grid !== null;
+  }
+
+  /**
+   * Show or hide the placement grid: faint lines over the slide every 40
+   * canvas pixels, stronger every 200, in the editor only — never in the
+   * player, exports or thumbnails. It sits under the selection overlay and
+   * takes no pointer events, so placing objects works exactly as without it.
+   * The choice is this viewer's and is remembered.
+   */
+  setGridVisible(shown: boolean): void {
+    if (shown === this.isGridVisible()) return;
+    if (shown) {
+      const grid = document.createElement('div');
+      grid.className = 'canvas-grid';
+      grid.setAttribute('aria-hidden', 'true');
+      this.stage.insertBefore(grid, this.overlay);
+      this.grid = grid;
+    } else {
+      this.grid?.remove();
+      this.grid = null;
+    }
+    writeGridPreference(shown);
+    this.onGridChange?.(shown);
+  }
+
+  toggleGrid(): boolean {
+    this.setGridVisible(!this.isGridVisible());
+    return this.isGridVisible();
   }
 
   /**

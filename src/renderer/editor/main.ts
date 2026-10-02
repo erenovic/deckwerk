@@ -142,6 +142,11 @@ const notesDrawer = new SpeakerNotesDrawer(el('canvas'), store, {
   onStatus: setStatusMessage,
 });
 const findBar = new FindBar(el('canvas'), store, { notes: notesDrawer });
+// View › Show Grid: the menu toggles the canvas's grid, and the canvas keeps
+// the menu's checkmark in step (including the state remembered from last time).
+canvas.onGridChange = (shown) => window.api.setGridState(shown);
+window.api.setGridState(canvas.isGridVisible());
+window.api.onToggleGrid(() => canvas.toggleGrid());
 const inspector = new Inspector(el('inspector'), store);
 new TimelinePanel(el('timeline'), store);
 new HistoryPanel(el('history'), store);

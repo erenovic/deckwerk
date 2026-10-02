@@ -364,6 +364,25 @@ body.panel-resizing iframe { pointer-events: none; }
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 
+/* View › Show Grid (Cmd/Ctrl+'): faint placement lines over the slide, every
+   40 canvas px and stronger every 200, drawn one screen pixel wide at any
+   zoom (--editor-inv-scale undoes the stage's scale). A blue tint reads on
+   light and dark slides alike; the grid never takes a click. */
+.canvas-grid {
+  --grid-line: calc(1px * var(--editor-inv-scale, 1));
+  --grid-minor: rgb(64 128 255 / 16%);
+  --grid-major: rgb(64 128 255 / 34%);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, var(--grid-major) var(--grid-line), transparent var(--grid-line)),
+    linear-gradient(to bottom, var(--grid-major) var(--grid-line), transparent var(--grid-line)),
+    linear-gradient(to right, var(--grid-minor) var(--grid-line), transparent var(--grid-line)),
+    linear-gradient(to bottom, var(--grid-minor) var(--grid-line), transparent var(--grid-line));
+  background-size: 200px 200px, 200px 200px, 40px 40px, 40px 40px;
+}
+
 /* Find (Cmd/Ctrl+F): a floating bar in the canvas's top-right corner, built
    like the zoom pill so the two read as one family of canvas controls. */
 .find-bar {

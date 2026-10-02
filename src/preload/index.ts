@@ -214,6 +214,10 @@ const api = {
     on(IPC.speakerNotesEdit, fn),
   /** Write `notes.md` if it is missing and open it in the system's editor. */
   openSpeakerNotes: (): Promise<string> => ipcRenderer.invoke(IPC.speakerNotesOpen),
+  /** View › Show Grid was chosen from the application menu. */
+  onToggleGrid: (fn: () => void): (() => void) => on(IPC.viewToggleGrid, fn),
+  /** Tell the application menu whether the grid is showing. */
+  setGridState: (shown: boolean): void => ipcRenderer.send(IPC.viewGridState, shown),
   onTrimTarget: (fn: (p: { src: string; elementId: string }) => void): (() => void) =>
     on(IPC.trimOpen, fn),
   onTrimProgress: (fn: (p: TrimProgress) => void): (() => void) =>

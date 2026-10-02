@@ -6,6 +6,7 @@ import { basename, dirname, extname, join, resolve, sep } from 'node:path';
 import { BrowserWindow, app, clipboard, ipcMain, screen, shell } from 'electron';
 import type { Display, IpcMainInvokeEvent, WebContents } from 'electron';
 import { parseDeck, type Deck } from '@shared/deck.js';
+import { installAppMenu, setShowGridChecked } from './appMenu.js';
 import type { DeckHistoryDocument } from '@shared/deckHistory.js';
 import {
   CLIPBOARD_FORMAT,
@@ -591,6 +592,7 @@ app.whenReady().then(async () => {
 
   installAssetProtocol();
   registerHandlers();
+  installAppMenu();
 
   const initial = deckDirFromArgv();
   const deck = initial
@@ -679,6 +681,7 @@ function registerHandlers(): void {
     (event): DeckSession | null => ownerOf(event.sender)?.session ?? null,
   );
   // Answered synchronously during preload: `assetUrl` is called on first paint.
+  ipcMain.on(IPC.viewGridState, (_event, shown: boolean) => setShowGridChecked(Boolean(shown)));
   ipcMain.on(IPC.deckKeyGet, (event) => {
     event.returnValue = ownerOf(event.sender)?.deckKey ?? NO_DECK_KEY;
   });

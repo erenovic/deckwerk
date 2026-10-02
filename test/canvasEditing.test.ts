@@ -3845,3 +3845,42 @@ describe('sizing list text', () => {
     expect(saved).toBe('<ul><li style="font-size: 40px;">first</li><li style="font-size: 40px;">second</li></ul>');
   });
 });
+
+describe('the placement grid (View › Show Grid)', () => {
+  const quote = () => new KeyboardEvent('keydown', {
+    key: "'", code: 'Quote', metaKey: true, bubbles: true, cancelable: true,
+  });
+
+  it('lays a grid over the slide, under the selection handles, and reports each change', () => {
+    const { canvas, host } = setup();
+    const changes: boolean[] = [];
+    canvas.onGridChange = (shown) => changes.push(shown);
+    expect(canvas.isGridVisible()).toBe(false);
+    expect(host.querySelector('.canvas-grid')).toBeNull();
+
+    expect(canvas.toggleGrid()).toBe(true);
+    const grid = host.querySelector<HTMLElement>('.stage > .canvas-grid')!;
+    expect(grid.nextElementSibling?.className).toBe('overlay-layer');
+    expect(host.querySelector('.slide-layer .canvas-grid')).toBeNull();
+
+    expect(canvas.toggleGrid()).toBe(false);
+    expect(host.querySelector('.canvas-grid')).toBeNull();
+    expect(changes).toEqual([true, false]);
+  });
+
+  it('toggles with Cmd/Ctrl+\' from anywhere, text editing included', () => {
+    const { store, canvas } = setup();
+    bindEditorKeys({ ...shellDeps(store), canvas }, noopClipboard());
+    const first = quote();
+    window.dispatchEvent(first);
+    expect(first.defaultPrevented).toBe(true);
+    expect(canvas.isGridVisible()).toBe(true);
+
+    store.select(['text-1']);
+    canvas.beginTextEdit('text-1');
+    document.querySelector('[data-element-id="text-1"] .text-content')!.dispatchEvent(quote());
+    expect(canvas.isGridVisible()).toBe(false);
+    // The text being edited is untouched.
+    expect((store.slide!.elements.find((el) => el.id === 'text-1') as { html: string }).html).toBe('Original text');
+  });
+});

@@ -57,6 +57,10 @@ export const IPC = {
   /** `notes.md` changed on disk; payload is the file's contents. */
   speakerNotesEdit: 'speakerNotes:edit',
   speakerNotesOpen: 'speakerNotes:open',
+  /** Main → editor: View › Show Grid was chosen from the menu. */
+  viewToggleGrid: 'view:toggleGrid',
+  /** Editor → main: the grid is now shown or hidden, for the menu's checkmark. */
+  viewGridState: 'view:gridState',
   agentContextPublish: 'agent:contextPublish',
   agentRequest: 'agent:request',
   agentResponse: 'agent:response',

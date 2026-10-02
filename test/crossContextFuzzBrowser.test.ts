@@ -138,7 +138,7 @@ function isKnownStaleSlideIdentity(error: string): boolean {
 type OpName =
   | 'click' | 'shift-click' | 'double-click text' | 'double-click image then text'
   | 'type nonce' | 'bold mid-word' | 'escape' | 'click empty' | 'marquee'
-  | 'rail hop' | 'rail drag' | 'find next' | 'shift drag' | 'page numbers' | 'theme apply' | 'undo' | 'redo' | 'undo round-trip' | 'delete selection'
+  | 'rail hop' | 'rail drag' | 'find next' | 'shift drag' | 'page numbers' | 'theme apply' | 'grid toggle' | 'undo' | 'redo' | 'undo round-trip' | 'delete selection'
   | 'cmd+a';
 
 interface Violation { seed: number; step: number; op: OpName; oracle: string; detail: string }
@@ -389,6 +389,7 @@ function chooseOp(next: () => number, pre: CrossState): OpName {
   if (pre.editing === null && targets.length > 0) add('shift drag', 2);
   if (pre.editing === null) add('page numbers', 1);
   if (pre.editing === null) add('theme apply', 1);
+  add('grid toggle', 1);
   add('undo', 2);
   add('redo', 1);
   add('undo round-trip', 1);
@@ -607,6 +608,24 @@ async function performOp(
         flag('routing', `page numbers ${shown.on ? 'on' : 'off'} on slide ${shown.index + 1} showed ${JSON.stringify(shown.label)}`);
       }
       if (shown.inLayer) flag('routing', 'the page number landed inside the slide layer');
+      return 'same';
+    }
+    case 'grid toggle': {
+      // Cmd/Ctrl+' from wherever focus is, mid-edit included: the grid flips
+      // and nothing about the slide or the text being edited changes.
+      const gridShown = () => session.cdp.evaluate<boolean>(
+        `Boolean(document.querySelector('#canvas .stage > .canvas-grid'))`);
+      const before = await gridShown();
+      const texts = await session.allTexts();
+      await session.chord("'", 'Quote', 222, MOD);
+      await wait(80);
+      if ((await gridShown()) === before) flag('routing', 'Cmd/Ctrl+\' did not toggle the grid');
+      const after = await session.allTexts();
+      for (const [id, text] of Object.entries(after)) {
+        if (texts[id] !== undefined && texts[id] !== text) {
+          flag('routing', `toggling the grid changed ${id}: "${texts[id]}" -> "${text}"`);
+        }
+      }
       return 'same';
     }
     case 'theme apply': {
