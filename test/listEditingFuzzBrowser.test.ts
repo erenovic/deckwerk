@@ -205,6 +205,7 @@ async function runWalk(seed: number): Promise<void> {
     'backspace at start', 'type', 'indent', 'outdent', 'undo',
     'other box', 'escape and re-enter', 'cut words', 'cut bullet', 'paste',
     'format and type', 'format and type', 'dash bullet', 'indent selection', 'outdent selection',
+    'level kind', 'typed level marker',
   ] as const;
   // The clipboard holds whatever the last cut put there; a paste before any
   // cut would paste another test's leftovers, which reproduces nothing.
@@ -269,6 +270,12 @@ async function runWalk(seed: number): Promise<void> {
         break;
       case 'dash bullet':
         await dashBullet(next, step, label);
+        break;
+      case 'level kind':
+        await levelKind(next, label);
+        break;
+      case 'typed level marker':
+        await typedLevelMarker(next, step, label);
         break;
       case 'indent selection':
       case 'outdent selection':
@@ -501,6 +508,58 @@ async function formatAndType(next: () => number, step: number, label: string): P
  * the words typed into it keep whatever format is pending — the reported
  * case being an underline lost as the line became a bullet.
  */
+/** The kind of the list the caret's item is in, or null outside a list. */
+async function caretLevel(): Promise<'OL' | 'UL' | null> {
+  return session.cdp.evaluate<'OL' | 'UL' | null>(`(() => {
+    const body = document.querySelector(${JSON.stringify(CONTENT)});
+    const node = window.getSelection()?.rangeCount ? window.getSelection().getRangeAt(0).startContainer : null;
+    const holder = node && (node.nodeType === Node.TEXT_NODE ? node.parentElement : node);
+    const item = holder && holder.closest('li');
+    return item && body.contains(item) ? item.parentElement.tagName : null;
+  })()`);
+}
+
+/**
+ * Cmd/Ctrl+Shift+7 or 8 somewhere in the box: the caret's own level takes the
+ * kind asked for, and no character of the text changes.
+ */
+async function levelKind(next: () => number, label: string): Promise<void> {
+  await moveCaret(next);
+  const numbered = next() < 0.5;
+  const textBefore = compact(await session.text());
+  const inList = (await caretLevel()) !== null;
+  await session.cdp.chord(numbered ? '&' : '*', numbered ? 'Digit7' : 'Digit8', numbered ? 55 : 56, MOD | 8);
+  await wait(120);
+  if (inList) {
+    expect(await caretLevel(), `${label}: the caret's level is not ${numbered ? 'numbered' : 'bulleted'}`)
+      .toBe(numbered ? 'OL' : 'UL');
+  }
+  expect(compact(await session.text()), `${label}: switching the level changed the text`).toBe(textBefore);
+}
+
+/**
+ * Return at the end of an item opens an empty one; typing the other kind's
+ * marker and a space switches that level, and leaves no marker as text.
+ */
+async function typedLevelMarker(next: () => number, step: number, label: string): Promise<void> {
+  await moveCaret(next, 'end');
+  if ((await caretLevel()) === null) return;
+  const textBefore = compact(await session.text());
+  await session.cdp.key('Enter', 13);
+  const level = await caretLevel();
+  if (level === null) return;
+  await session.cdp.typeKeys(level === 'OL' ? '- ' : '1. ');
+  await wait(120);
+  expect(await caretLevel(), `${label}: the typed marker did not switch the level`)
+    .toBe(level === 'OL' ? 'UL' : 'OL');
+  expect(compact(await session.text()), `${label}: the marker stayed behind as text`).toBe(textBefore);
+  const word = `m${step}`;
+  await session.cdp.typeKeys(word);
+  const textAfter = compact(await session.text());
+  expect(textAfter.length, `${label}: typing after the switch went astray`).toBe(textBefore.length + word.length);
+  expect(textAfter, `${label}: the typed word is missing`).toContain(word);
+}
+
 async function dashBullet(next: () => number, step: number, label: string): Promise<void> {
   // A fresh plain line: Return at the end of a paragraph. Inside a list the
   // browser continues the list instead, and "- " there is just text.

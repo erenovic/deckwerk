@@ -138,7 +138,7 @@ function isKnownStaleSlideIdentity(error: string): boolean {
 type OpName =
   | 'click' | 'shift-click' | 'double-click text' | 'double-click image then text'
   | 'type nonce' | 'bold mid-word' | 'escape' | 'click empty' | 'marquee'
-  | 'rail hop' | 'rail drag' | 'find next' | 'shift drag' | 'undo' | 'redo' | 'undo round-trip' | 'delete selection'
+  | 'rail hop' | 'rail drag' | 'find next' | 'shift drag' | 'page numbers' | 'undo' | 'redo' | 'undo round-trip' | 'delete selection'
   | 'cmd+a';
 
 interface Violation { seed: number; step: number; op: OpName; oracle: string; detail: string }
@@ -387,6 +387,7 @@ function chooseOp(next: () => number, pre: CrossState): OpName {
   if (pre.editing === null) add('rail drag', 1);
   add('find next', 1);
   if (pre.editing === null && targets.length > 0) add('shift drag', 2);
+  if (pre.editing === null) add('page numbers', 1);
   add('undo', 2);
   add('redo', 1);
   add('undo round-trip', 1);
@@ -569,6 +570,29 @@ async function performOp(
           flag('census', `Shift-drag moved ${move.id} by (${move.dx}, ${move.dy}) but ${moves[0].id} by (${moves[0].dx}, ${moves[0].dy})`);
         }
       }
+      return 'same';
+    }
+    case 'page numbers': {
+      // The Design tab's real checkbox, then straight back to Props: the
+      // canvas must show the current slide's number exactly while numbering
+      // is on, outside the slide layer the render invariant compares.
+      await session.cdp.click('#side-tabs button[data-panel="themePanel"]', 'Design tab');
+      await wait(120);
+      await session.cdp.click('.page-numbers-section .field-check input', 'Show page numbers');
+      await wait(120);
+      await session.cdp.click('#side-tabs button[data-panel="inspector"]', 'Props tab');
+      await wait(150);
+      const shown = await session.cdp.evaluate<{ on: boolean; label: string | null; index: number; inLayer: boolean }>(`(() => ({
+        on: Boolean(window.store.get().deck.pageNumbers),
+        label: document.querySelector('#canvas .stage > .page-number')?.textContent ?? null,
+        index: window.store.get().slideIndex,
+        inLayer: Boolean(document.querySelector('#canvas .slide-layer .page-number')),
+      }))()`);
+      const expected = shown.on ? String(shown.index + 1) : null;
+      if (shown.label !== expected) {
+        flag('routing', `page numbers ${shown.on ? 'on' : 'off'} on slide ${shown.index + 1} showed ${JSON.stringify(shown.label)}`);
+      }
+      if (shown.inLayer) flag('routing', 'the page number landed inside the slide layer');
       return 'same';
     }
     case 'undo':

@@ -114,6 +114,34 @@ export const MediaEffectSchema = z.discriminatedUnion('type', [
   }),
 ]);
 
+/** Where on the slide the page number sits. */
+export const PAGE_NUMBER_POSITIONS = [
+  'bottom-right', 'bottom-center', 'bottom-left', 'top-right', 'top-center', 'top-left',
+] as const;
+
+/**
+ * Deck-wide slide numbering, set from the Design tab. Hidden slides are not
+ * counted; a title slide is counted but shows no number when `hideOnTitle`.
+ */
+export const PageNumbersSchema = z.object({
+  position: z.enum(PAGE_NUMBER_POSITIONS).default('bottom-right'),
+  /** Distance from the two nearest slide edges, in canvas pixels. */
+  margin: z.number().min(0).default(40),
+  fontSize: z.number().positive().default(24),
+  /** Null follows the theme's caption colour. */
+  color: z.string().nullable().default(null),
+  /** "3", or "3 / 12" with the last number shown. */
+  format: z.enum(['number', 'number-of-total']).default('number'),
+  /** The number the first counted slide gets. */
+  startAt: z.number().int().default(1),
+  /** No number on slides using the Title layout (they still count). */
+  hideOnTitle: z.boolean().default(true),
+  /** No number on the first counted slide (it still counts). */
+  hideOnFirst: z.boolean().default(false),
+});
+
+export type PageNumbers = z.infer<typeof PageNumbersSchema>;
+
 const TextElement = BaseElement.extend({
   type: z.literal('text'),
   /** Inline HTML. Fonts and sizes are expected to come from theme.css. */
@@ -440,6 +468,8 @@ export const DeckSchema = z.object({
    * syncs with the deck but never takes an undo step (see `recentColors.ts`).
    */
   recentColors: z.array(z.string()).default([]),
+  /** Slide numbers drawn on every slide; null means the deck has none. See `pageNumbers.ts`. */
+  pageNumbers: PageNumbersSchema.nullable().default(null),
   /** Deck-local theme presets, offered and applied exactly like the built-ins. */
   customThemes: z.array(CustomThemeSchema).default([]),
   /** Three fixed, deck-local layout masters. Null preserves legacy hard-coded layouts. */

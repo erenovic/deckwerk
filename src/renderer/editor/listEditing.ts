@@ -397,3 +397,145 @@ export function parentListItem(item: HTMLElement): HTMLElement | null {
   const before = list.previousElementSibling;
   return before?.tagName === 'LI' ? before as HTMLElement : null;
 }
+
+/**
+ * Switching one level of a list between bullets and numbers.
+ *
+ * A list's kind belongs to each level on its own: numbered steps can hold
+ * bulleted details and a bulleted list can hold numbered steps. The List
+ * control, the typed `1.` / `-` marker and Cmd+Shift+7/8 all act on the
+ * levels the caret or selection is actually in, and never reach into the
+ * sub-lists of those levels.
+ */
+
+/** Is this text node part of `item`'s own line, rather than one of its sub-lists? */
+function isOwnText(node: Node, item: HTMLElement): boolean {
+  return node.parentElement?.closest('li') === item;
+}
+
+/**
+ * The lists whose own items the caret or selection is in, outermost first.
+ *
+ * An item counts when the caret is on its own line, or when the selection
+ * covers any of its own text. Its sub-items do not make it count: selecting
+ * only the details under a step leaves the steps' level alone. An empty item
+ * (a placeholder `<br>`) counts when the selection spans it.
+ */
+export function listsAtSelection(content: HTMLElement, range: Range, collapsed = range.collapsed): HTMLElement[] {
+  const items = new Set<HTMLElement>();
+  if (collapsed) {
+    const at = range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement;
+    const item = at?.closest<HTMLElement>('li');
+    if (item && content.contains(item)) items.add(item);
+  } else {
+    for (const item of content.querySelectorAll<HTMLElement>('li')) {
+      const doc = item.ownerDocument ?? document;
+      const walker = doc.createTreeWalker(item, NodeFilter.SHOW_TEXT);
+      let ownText = false;
+      let touched = false;
+      for (let node = walker.nextNode(); node && !touched; node = walker.nextNode()) {
+        if (!isOwnText(node, item)) continue;
+        ownText = true;
+        try {
+          touched = range.intersectsNode(node) && (node as Text).data.length > 0;
+        } catch {
+          touched = false;
+        }
+      }
+      if (!touched && !ownText) {
+        try {
+          touched = range.intersectsNode(item);
+        } catch {
+          touched = false;
+        }
+      }
+      if (touched) items.add(item);
+    }
+  }
+  const lists: HTMLElement[] = [];
+  for (const item of items) {
+    const list = item.parentElement;
+    if (list && LIST_TAGS.test(list.tagName) && !lists.includes(list)) lists.push(list);
+  }
+  // Document order puts an outer list before the lists nested in it.
+  return lists.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+}
+
+/**
+ * Give one list the other tag, keeping its items, attributes and sub-lists
+ * exactly as they are. A numbered list's `start` has no meaning on bullets
+ * and is dropped. Returns the list now in the document.
+ */
+export function retagList(list: HTMLElement, ordered: boolean): HTMLElement {
+  const tag = ordered ? 'OL' : 'UL';
+  if (list.tagName === tag) return list;
+  const doc = list.ownerDocument ?? document;
+  const replacement = doc.createElement(tag.toLowerCase());
+  for (const attr of [...list.attributes]) {
+    if (!ordered && attr.name === 'start') continue;
+    replacement.setAttribute(attr.name, attr.value);
+  }
+  while (list.firstChild) replacement.appendChild(list.firstChild);
+  list.replaceWith(replacement);
+  return replacement;
+}
+
+/** A `1.`, `1)`, `-` or `*` typed as the whole of a list item's own line. */
+export interface TypedLevelMarker {
+  item: HTMLElement;
+  ordered: boolean;
+  /** The number typed, for a numbered list that starts somewhere else. */
+  start: string | null;
+}
+
+/**
+ * Typing `1.` or `-` (then a space) into an otherwise empty item asks for that
+ * level to be numbered or bulleted. Only a marker of the *other* kind counts:
+ * `- ` in a bulleted item is just text the author is writing.
+ *
+ * `ownLine` is the item's own text with the caret at its end, as the caller
+ * read it (editor-only characters already stripped).
+ */
+export function typedLevelMarker(item: HTMLElement, ownLine: string): TypedLevelMarker | null {
+  const list = item.parentElement;
+  if (!list || !LIST_TAGS.test(list.tagName)) return null;
+  const match = /^\s*(?:[*-]|(\d+)[.)])$/.exec(ownLine);
+  if (!match) return null;
+  const ordered = match[1] !== undefined;
+  if ((list.tagName === 'OL') === ordered) return null;
+  return { item, ordered, start: match[1] ?? null };
+}
+
+/**
+ * Switch the item's level to the kind its typed marker asked for and take the
+ * marker's characters off the item's own line. `keep` decides which characters
+ * are not the marker's (an editor-only sentinel holding a pending style).
+ */
+export function applyTypedLevelMarker(
+  marker: TypedLevelMarker,
+  markerLength: number,
+  keep: (character: string) => boolean = () => false,
+): HTMLElement {
+  const { item, ordered, start } = marker;
+  const doc = item.ownerDocument ?? document;
+  let remaining = markerLength;
+  const walker = doc.createTreeWalker(item, NodeFilter.SHOW_TEXT);
+  const texts: Text[] = [];
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (isOwnText(node, item)) texts.push(node as Text);
+  }
+  for (const text of texts) {
+    if (remaining <= 0) break;
+    let kept = '';
+    for (const character of text.data) {
+      if (keep(character) || remaining <= 0) kept += character;
+      else remaining -= 1;
+    }
+    text.data = kept;
+  }
+  const list = retagList(item.parentElement as HTMLElement, ordered);
+  // A typed `3.` on the first item starts the numbering there, as it does
+  // when a paragraph becomes a list.
+  if (ordered && start && start !== '1' && list.firstElementChild === item) list.setAttribute('start', start);
+  return list;
+}

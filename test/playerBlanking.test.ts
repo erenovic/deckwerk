@@ -46,4 +46,21 @@ describe('player blanking', () => {
     expect(player.toggleBlank()).toBe(false);
     expect(stage.style.opacity).toBe('1');
   });
+
+  it('draws the page number on each slide it presents, as the audience sees it', () => {
+    const deck = emptyDeck('Numbers');
+    deck.slides.push({ ...structuredClone(deck.slides[0]), id: 'second' });
+    deck.slides[0].layout = 'title';
+    deck.pageNumbers = {
+      position: 'bottom-right', margin: 40, fontSize: 24, color: null,
+      format: 'number-of-total', startAt: 1, hideOnTitle: true, hideOnFirst: false,
+    };
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const player = new Player({ deck, container: host, resolveSrc: (src) => src });
+    const number = () => host.querySelector('.stage > .page-number')?.textContent ?? null;
+    expect(number()).toBeNull();
+    player.next();
+    expect(number()).toBe('2 / 2');
+  });
 });

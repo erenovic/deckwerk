@@ -2,7 +2,7 @@ import type { Deck, Slide } from '@shared/deck.js';
 import type { PdfBuildMode } from '@shared/ipc.js';
 import { resolveState, type SlideState } from '@shared/timeline.js';
 import { pdfSteps } from '@shared/pdfExport.js';
-import { renderSlide } from '../player/render.js';
+import { renderPageNumber, renderSlide } from '../player/render.js';
 import { applyStaticSlideState } from '../player/staticState.js';
 
 /**
@@ -64,6 +64,8 @@ export function buildPrintPages(
       // leave the pinned seek racing the network inside that timeout, which
       // showed up as nondeterministic frames in the PDF-vs-player pixel test.
       stage.appendChild(renderSlide(slide, { resolveSrc }));
+      const pageNumber = renderPageNumber(deck, deck.slides.indexOf(slide));
+      if (pageNumber) stage.appendChild(pageNumber);
       const state = resolveState(slide, step);
       applyStaticSlideState(stage, slide, state);
       page.appendChild(stage);

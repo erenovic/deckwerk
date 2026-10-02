@@ -3670,3 +3670,158 @@ describe('Shift-constrained moves', () => {
     expect({ x: text(store).x, y: text(store).y }).toEqual({ x: 100, y: 100 });
   });
 });
+
+describe('list kinds per level', () => {
+  const NESTED = '<ul><li>Step one<ul><li>detail a</li><li>detail b</li></ul></li><li>Step two</li></ul>';
+
+  function editing(html: string) {
+    const env = setup();
+    env.store.select(['text-1']);
+    env.store.updateSelected((element) => {
+      if (element.type === 'text') element.html = html;
+    });
+    env.canvas.beginTextEdit('text-1');
+    const body = bodyOf(env.host, 'text-1');
+    const saved = () => (env.store.slide!.elements.find((element) => element.id === 'text-1') as { html: string }).html;
+    return { ...env, body, saved };
+  }
+
+  function caretIn(node: Node, offset: number): void {
+    const range = document.createRange();
+    range.setStart(node, offset);
+    range.collapse(true);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+  }
+
+  const detail = (body: HTMLElement) => body.querySelector('li li')!;
+
+  it('numbers only the level the caret is in, keeping the bullets above it', () => {
+    const { canvas, body, saved } = editing(NESTED);
+    caretIn(detail(body).firstChild!, 3);
+    expect(canvas.textSelectionListStyle()).toBe('Bulleted');
+
+    expect(canvas.applyTextSelectionListStyle('Numbered')).toBe(true);
+    expect(body.innerHTML).toBe('<ul><li>Step one<ol><li>detail a</li><li>detail b</li></ol></li><li>Step two</li></ul>');
+    expect(saved()).toBe(body.innerHTML);
+    expect(canvas.textSelectionListStyle()).toBe('Numbered');
+  });
+
+  it('numbers the outer level without touching the details under it', () => {
+    const { canvas, body } = editing(NESTED);
+    caretIn(body.querySelector('li')!.firstChild!, 2);
+    expect(canvas.applyTextSelectionListStyle('Numbered')).toBe(true);
+    expect(body.innerHTML).toBe('<ol><li>Step one<ul><li>detail a</li><li>detail b</li></ul></li><li>Step two</li></ol>');
+  });
+
+  it('still converts every level a selection covers, a pasted list included', () => {
+    const { canvas, body } = editing(NESTED);
+    const range = document.createRange();
+    range.selectNodeContents(body);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    expect(canvas.textSelectionListStyle()).toBe('Bulleted');
+    expect(canvas.applyTextSelectionListStyle('Numbered')).toBe(true);
+    expect(body.innerHTML).toBe('<ol><li>Step one<ol><li>detail a</li><li>detail b</li></ol></li><li>Step two</li></ol>');
+    // The characters selected before are still the ones selected.
+    expect(window.getSelection()!.toString()).toContain('detail b');
+  });
+
+  it('reports mixed when a selection spans levels of both kinds', () => {
+    const { canvas, body } = editing('<ol><li>Step<ul><li>detail</li></ul></li></ol>');
+    const range = document.createRange();
+    range.selectNodeContents(body);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    expect(canvas.textSelectionListStyle()).toBeNull();
+  });
+
+  it('switches the caret level with Cmd+Shift+7 and Cmd+Shift+8, as one undo step each', () => {
+    const { store, body, saved } = editing(NESTED);
+    caretIn(detail(body).firstChild!, 1);
+    const chord = (code: string) => {
+      const event = new KeyboardEvent('keydown', {
+        key: code === 'Digit7' ? '&' : '*', code, metaKey: true, shiftKey: true, bubbles: true, cancelable: true,
+      });
+      body.dispatchEvent(event);
+      return event;
+    };
+    expect(chord('Digit7').defaultPrevented).toBe(true);
+    expect(saved()).toBe('<ul><li>Step one<ol><li>detail a</li><li>detail b</li></ol></li><li>Step two</li></ul>');
+    chord('Digit8');
+    expect(saved()).toBe(NESTED);
+    store.undo();
+    expect(saved()).toContain('<ol><li>detail a');
+  });
+
+  it('switches the level when 1. or - is typed into an empty item, then a space', () => {
+    const { body, saved, canvas } = editing('<ul><li>Step<ul><li>1.</li></ul></li></ul>');
+    const typed = detail(body);
+    caretIn(typed.firstChild!, 2);
+    const space = new InputEvent('beforeinput', { inputType: 'insertText', data: ' ', bubbles: true, cancelable: true });
+    body.dispatchEvent(space);
+    expect(space.defaultPrevented).toBe(true);
+    expect(body.querySelector('ul > li > ol > li')).not.toBeNull();
+    expect(body.querySelector('ol li')!.textContent).toBe('');
+    canvas.endTextEditing(true);
+    expect(saved()).toMatch(/^<ul><li>Step<ol><li>(<br>)?<\/li><\/ol><\/li><\/ul>$/);
+  });
+
+  it('leaves a typed dash in a bulleted item as text', () => {
+    const { body } = editing('<ul><li>Step<ul><li>-</li></ul></li></ul>');
+    caretIn(detail(body).firstChild!, 1);
+    const space = new InputEvent('beforeinput', { inputType: 'insertText', data: ' ', bubbles: true, cancelable: true });
+    body.dispatchEvent(space);
+    expect(body.querySelector('ol')).toBeNull();
+    expect(body.querySelectorAll('ul')).toHaveLength(2);
+  });
+
+  it('switches a selected box\'s top level with the shortcut, leaving its sub-lists', () => {
+    const { store } = setup();
+    bindEditorKeys(shellDeps(store), noopClipboard());
+    store.select(['text-1']);
+    store.updateSelected((element) => {
+      if (element.type === 'text') element.html = NESTED;
+    });
+    window.dispatchEvent(new KeyboardEvent('keydown', {
+      key: '&', code: 'Digit7', metaKey: true, shiftKey: true, bubbles: true, cancelable: true,
+    }));
+    const html = (store.slide!.elements.find((element) => element.id === 'text-1') as { html: string }).html;
+    expect(html).toBe('<ol><li>Step one<ul><li>detail a</li><li>detail b</li></ul></li><li>Step two</li></ol>');
+  });
+});
+
+describe('page numbers on the editing canvas', () => {
+  it('shows the current slide\'s number above the slide, following moves and settings', () => {
+    const { store, host } = setup();
+    store.commit((deck) => {
+      deck.slides.push({ ...structuredClone(deck.slides[0]), id: 'slide-2', elements: [] });
+      deck.slides.push({ ...structuredClone(deck.slides[0]), id: 'slide-3', elements: [] });
+      deck.pageNumbers = {
+        position: 'bottom-right', margin: 40, fontSize: 24, color: null,
+        format: 'number-of-total', startAt: 1, hideOnTitle: true, hideOnFirst: false,
+      };
+    }, { history: false });
+    const shown = () => host.querySelector<HTMLElement>('.stage > .page-number')?.textContent ?? null;
+    expect(shown()).toBe('1 / 3');
+    // Under the selection overlay, never inside the slide layer the render
+    // invariant compares against a fresh slide render.
+    expect(host.querySelector('.slide-layer .page-number')).toBeNull();
+    expect(host.querySelector('.stage > .page-number')!.nextElementSibling?.className).toBe('overlay-layer');
+
+    store.selectSlide(2);
+    expect(shown()).toBe('3 / 3');
+
+    // Moving the slide renumbers it without any edit to the slide itself.
+    store.commit((deck) => { deck.slides.unshift(deck.slides.pop()!); }, { label: 'Move slide' });
+    store.selectSlide(0);
+    expect(shown()).toBe('1 / 3');
+
+    store.commit((deck) => { deck.slides[0].layout = 'title'; }, { label: 'Title layout' });
+    expect(shown()).toBeNull();
+
+    store.commit((deck) => { deck.pageNumbers = null; }, { label: 'Hide page numbers' });
+    store.selectSlide(1);
+    expect(shown()).toBeNull();
+  });
+});

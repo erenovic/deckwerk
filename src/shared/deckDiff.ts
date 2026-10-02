@@ -52,7 +52,8 @@ function diffDeckProps(prev: Deck, next: Deck): AgentOperation | null {
     }
   }
   for (const key of [
-    'canvas', 'themeStyle', 'themeSelection', 'themeHistory', 'recentColors', 'customThemes', 'layoutMasters',
+    'canvas', 'themeStyle', 'themeSelection', 'themeHistory', 'recentColors', 'pageNumbers', 'customThemes',
+    'layoutMasters',
   ] as const) {
     if (JSON.stringify(prev[key]) !== JSON.stringify(next[key])) {
       op[key] = structuredClone(next[key]);

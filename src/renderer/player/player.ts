@@ -12,6 +12,7 @@ import {
 import {
   applyStageScale,
   fitAutoTextElement,
+  renderPageNumber,
   renderSlide,
   videoPresentationKey,
 } from './render.js';
@@ -363,7 +364,8 @@ export class Player {
     const rendered = renderSlide(slide, { resolveSrc: this.resolveSrc });
     this.adoptWarmedImages(rendered);
     revealImagesWhenDecoded(rendered);
-    this.stage.replaceChildren(rendered);
+    const pageNumber = renderPageNumber(this.deck, slides.indexOf(slide));
+    this.stage.replaceChildren(rendered, ...(pageNumber ? [pageNumber] : []));
     this.notifyWebFrames({ source: WEB_BRIDGE_SOURCE, event: 'active', step: this.cursor.step, steps });
 
     // Two passes, because identity has to win globally rather than per node: a

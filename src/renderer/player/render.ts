@@ -10,6 +10,7 @@ import { quadraticPath, shapeSvg } from '@shared/shapeSvg.js';
 import { isMediaBorderPaint, typedPropertyOwnsCss } from '@shared/nativeCss.js';
 import { applyTableColumnWidths } from '@shared/paragraphs.js';
 import { isEmbeddableWebSrc } from '@shared/webBridge.js';
+import { pageNumberLabel } from '@shared/pageNumbers.js';
 import renderMathInElement from 'katex/contrib/auto-render';
 import 'katex/dist/katex.min.css';
 
@@ -67,6 +68,42 @@ export function renderSlide(slide: Slide, opts: RenderOptions): HTMLElement {
     root.appendChild(renderElement(el, opts));
   }
   return root;
+}
+
+/**
+ * The deck's page number for one slide, or null when it shows none.
+ *
+ * Not part of `renderSlide`: the number is not slide content but a function of
+ * where the slide sits in the deck, and the surfaces that cache a slide's
+ * render by slide object (the rail) would keep a stale number. Each surface
+ * that shows the number puts it beside the slide root, inside the stage, where
+ * canvas pixels are the coordinate space just as they are for elements. It
+ * takes the theme's caption typeface and colour unless the deck sets a colour,
+ * and never takes the pointer: clicks go to the slide underneath.
+ */
+export function renderPageNumber(deck: Deck, slideIndex: number): HTMLElement | null {
+  const settings = deck.pageNumbers;
+  const label = pageNumberLabel(deck, slideIndex);
+  if (!settings || label === null) return null;
+  const node = document.createElement('div');
+  node.className = 'page-number role-caption';
+  node.dataset.pageNumber = label;
+  node.textContent = label;
+  const [vertical, horizontal] = settings.position.split('-') as ['top' | 'bottom', 'left' | 'center' | 'right'];
+  const margin = `${settings.margin}px`;
+  node.style.cssText = [
+    'position:absolute',
+    'z-index:2147483000',
+    'pointer-events:none',
+    'white-space:nowrap',
+    'line-height:1.2',
+    'margin:0',
+    `font-size:${settings.fontSize}px`,
+    `${vertical}:${margin}`,
+    horizontal === 'center' ? 'left:0;right:0;text-align:center' : `${horizontal}:${margin}`,
+    ...(settings.color ? [`color:${settings.color}`] : []),
+  ].join(';');
+  return node;
 }
 
 /**

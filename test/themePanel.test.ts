@@ -33,9 +33,10 @@ describe('theme panel', () => {
       'insp-option-section theme-current-section',
       'insp-option-section theme-apply-section',
       'insp-option-section layouts-section',
+      'insp-option-section page-numbers-section',
     ]);
     expect([...panel.element.querySelectorAll('.insp-subtitle')].map((h) => h.textContent))
-      .toEqual(['Current theme', 'Apply theme', 'Layouts']);
+      .toEqual(['Current theme', 'Apply theme', 'Layouts', 'Page numbers']);
     expect(panel.element.querySelectorAll('.theme-active-host .theme-card')).toHaveLength(1);
     expect(panel.element.querySelector('.theme-chooser')?.hasAttribute('hidden')).toBe(true);
     expect(onThemePreview).not.toHaveBeenCalled();
@@ -481,5 +482,77 @@ describe('the theme editor’s type scale', () => {
       .find((node) => node.textContent === 'Cancel')!.click();
     expect(JSON.stringify(store.get().deck)).toBe(before);
     expect(store.canUndo()).toBe(false);
+  });
+});
+
+describe('page numbers in the Design tab', () => {
+  beforeEach(() => document.body.replaceChildren());
+
+  function openPanel() {
+    const store = new EditorStore(emptyDeck('Numbers'), '/tmp/page-numbers');
+    const panel = createThemePanel({
+      store,
+      cssEditor: { getValue: () => '', setValue: vi.fn() } as unknown as CssEditor,
+      save: vi.fn(),
+      setStatusMessage: vi.fn(),
+      saveThemeCss: vi.fn(),
+    });
+    document.body.appendChild(panel.element);
+    const section = () => panel.element.querySelector<HTMLElement>('.page-numbers-section')!;
+    const field = (label: string) => [...section().querySelectorAll<HTMLElement>('label')]
+      .find((node) => node.querySelector('span')?.textContent?.startsWith(label))!;
+    return { store, section, field };
+  }
+
+  it('is off by default and turns on with defaults, as one undo step', () => {
+    const { store, section, field } = openPanel();
+    expect(section().querySelectorAll('select')).toHaveLength(0);
+    const show = field('Show page numbers').querySelector('input')!;
+    expect(show.checked).toBe(false);
+
+    show.click();
+    expect(store.get().deck.pageNumbers).toMatchObject({ position: 'bottom-right', fontSize: 24, hideOnTitle: true });
+    expect(field('Position').querySelector('select')!.value).toBe('bottom-right');
+
+    store.undo();
+    expect(store.get().deck.pageNumbers).toBeNull();
+    expect(section().querySelectorAll('select')).toHaveLength(0);
+  });
+
+  it('changes placement, size, format, numbering and title-slide rules', () => {
+    const { store, field } = openPanel();
+    field('Show page numbers').querySelector('input')!.click();
+    const choose = (label: string, value: string) => {
+      const select = field(label).querySelector('select')!;
+      select.value = value;
+      select.dispatchEvent(new Event('change'));
+    };
+    const type = (label: string, value: string) => {
+      const input = field(label).querySelector('input')!;
+      input.value = value;
+      input.dispatchEvent(new Event('change'));
+    };
+    choose('Position', 'top-center');
+    choose('Format', 'number-of-total');
+    type('Size', '40');
+    type('Margin', '12');
+    type('Start at', '0');
+    field('Hide on title slides').querySelector('input')!.click();
+    field('Hide on first slide').querySelector('input')!.click();
+
+    expect(store.get().deck.pageNumbers).toEqual({
+      position: 'top-center', margin: 12, fontSize: 40, color: null,
+      format: 'number-of-total', startAt: 0, hideOnTitle: false, hideOnFirst: true,
+    });
+    // The rebuilt controls show what was chosen.
+    expect(field('Size').querySelector('input')!.value).toBe('40');
+    expect(field('Hide on first slide').querySelector('input')!.checked).toBe(true);
+  });
+
+  it('turns off again, keeping no settings behind', () => {
+    const { store, field } = openPanel();
+    field('Show page numbers').querySelector('input')!.click();
+    field('Show page numbers').querySelector('input')!.click();
+    expect(store.get().deck.pageNumbers).toBeNull();
   });
 });

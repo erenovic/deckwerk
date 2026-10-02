@@ -760,3 +760,18 @@ export function normalizeParagraphHtml(html: string, splitBreaks = false): strin
   for (const p of paragraphs) out.appendChild(p);
   return out.innerHTML;
 }
+
+export type ListStyle = 'None' | 'Bulleted' | 'Numbered';
+
+/**
+ * A whole text box's List choice, made while the box is selected rather than
+ * being edited: the top-level list switches kind and its sub-lists keep theirs,
+ * as each level does when changed from inside the text.
+ */
+export function applyListStyleToHtml(html: string, style: ListStyle): string {
+  if (style === 'None') return listToParagraphs(html);
+  if (style === 'Numbered') {
+    return hasList(html, false) ? changeListType(html, true) : paragraphsToOrderedList(html);
+  }
+  return hasList(html, true) ? changeListType(html, false) : paragraphsToList(html);
+}

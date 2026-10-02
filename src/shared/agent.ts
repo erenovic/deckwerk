@@ -132,6 +132,7 @@ const UpdateDeckOperation = z.object({
   themeSelection: DeckSchema.shape.themeSelection.removeDefault().optional(),
   themeHistory: DeckSchema.shape.themeHistory.removeDefault().optional(),
   recentColors: DeckSchema.shape.recentColors.removeDefault().optional(),
+  pageNumbers: DeckSchema.shape.pageNumbers.removeDefault().optional(),
   customThemes: DeckSchema.shape.customThemes.removeDefault().optional(),
   layoutMasters: DeckSchema.shape.layoutMasters.removeDefault().optional(),
   morphEasing: z.enum(['ease-in-out', 'ease-out', 'linear']).optional(),
@@ -333,6 +334,7 @@ function applyOperation(deck: Deck, operation: AgentOperation): void {
       }
       if (operation.themeHistory !== undefined) deck.themeHistory = [...operation.themeHistory];
       if (operation.recentColors !== undefined) deck.recentColors = [...operation.recentColors];
+      if (operation.pageNumbers !== undefined) deck.pageNumbers = structuredClone(operation.pageNumbers);
       if (operation.layoutMasters !== undefined) {
         // Slides are not synchronized here on purpose. `updateDeck` is a field
         // setter in an operation algebra that undo, redo and collaboration all

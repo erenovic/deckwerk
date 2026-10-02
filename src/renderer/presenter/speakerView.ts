@@ -4,7 +4,7 @@ import { renderNotesMarkdown } from '@shared/notesMarkdown.js';
 import { resolveState } from '@shared/timeline.js';
 import { revealImagesWhenDecoded } from '../player/imageDecode.js';
 import { freezePreviewVideos, releasePreviewVideos } from '../player/previewPoster.js';
-import { applyStageScale, renderSlide, rewriteCssAssetUrls } from '../player/render.js';
+import { applyStageScale, renderPageNumber, renderSlide, rewriteCssAssetUrls } from '../player/render.js';
 import { applyStaticSlideState } from '../player/staticState.js';
 import { makePanelResizable } from '../editor/panelResize.js';
 import { formatElapsed, formatWallClock, presentationLabel } from './model.js';
@@ -264,6 +264,8 @@ export function createSpeakerView(options: SpeakerViewOptions): SpeakerView {
     const stage = document.createElement('div');
     stage.className = 'stage';
     stage.appendChild(renderSlide(slide, { resolveSrc, mediaPreload: 'metadata', deferVideoSrc: true }));
+    const pageNumber = deck ? renderPageNumber(deck, slideIndex) : null;
+    if (pageNumber) stage.appendChild(pageNumber);
     target.appendChild(stage);
     applyStaticSlideState(stage, slide, resolveState(slide, step));
     const bounds = target.getBoundingClientRect();
