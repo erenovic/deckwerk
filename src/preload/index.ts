@@ -3,7 +3,8 @@ import type { Deck } from '@shared/deck.js';
 import type { DeckHistoryDocument } from '@shared/deckHistory.js';
 import type { ClipboardReadResult, ClipboardWriteRequest } from '@shared/clipboard.js';
 import type { ClipboardImageSource } from '@shared/clipboardImages.js';
-import { IPC } from '@shared/ipc.js';
+import { IPC, type TemplateCommand, type TemplateSaveResult, type TemplateSummary } from '@shared/ipc.js';
+import type { DeckTemplate } from '@shared/deckTemplates.js';
 import type {
   AgentContextDraft,
   AgentPanelState,
@@ -84,6 +85,21 @@ const api = {
     ipcRenderer.invoke(IPC.deckHistoryLoad, dir),
   saveDeckHistory: (dir: string, history: DeckHistoryDocument): Promise<void> =>
     ipcRenderer.invoke(IPC.deckHistorySave, dir, history),
+
+  /** Saved deck templates, newest first. */
+  listTemplates: (): Promise<TemplateSummary[]> => ipcRenderer.invoke(IPC.templateList),
+  /** Save this deck's design as a template; `replace` overwrites one of the same name. */
+  saveTemplate: (name: string, deck: Deck, css: string, replace = false): Promise<TemplateSaveResult> =>
+    ipcRenderer.invoke(IPC.templateSave, name, deck, css, replace),
+  deleteTemplate: (id: string): Promise<void> => ipcRenderer.invoke(IPC.templateDelete, id),
+  /** A template, with its files copied into the open deck, ready to apply. */
+  takeTemplate: (id: string): Promise<DeckTemplate> => ipcRenderer.invoke(IPC.templateTake, id),
+  /** Like newDeck, but the deck starts out wearing the template. */
+  newDeckFromTemplate: (id: string, operationId?: string): Promise<DeckSession | null> =>
+    ipcRenderer.invoke(IPC.templateNew, id, operationId),
+  /** File › New from Template / Save as Template / Apply Template was chosen. */
+  onTemplateCommand: (fn: (command: TemplateCommand) => void): (() => void) =>
+    on(IPC.templateCommand, fn),
 
   loadTheme: (): Promise<string> => ipcRenderer.invoke(IPC.deckLoadTheme),
   saveTheme: (css: string): Promise<void> => ipcRenderer.invoke(IPC.deckSaveTheme, css),

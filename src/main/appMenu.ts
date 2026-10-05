@@ -10,7 +10,8 @@ import { IPC } from '@shared/ipc.js';
  * choice), which reports it through `setShowGridChecked`. The ⌘' key is
  * handled by the page itself so it also works while text is being edited;
  * the menu shows it and handles a click. Arrange's ⌘G and ⇧⌘G are the
- * page's keys in the same way.
+ * page's keys in the same way. File's template items open the editor's own
+ * template dialogs.
  */
 
 const SHOW_GRID_ID = 'show-grid';
@@ -26,7 +27,26 @@ export function installAppMenu(): void {
   const isMac = process.platform === 'darwin';
   const template: MenuItemConstructorOptions[] = [
     ...(isMac ? [{ role: 'appMenu' as const }] : []),
-    { role: 'fileMenu' },
+    {
+      label: 'File',
+      submenu: [
+        {
+          label: 'New from Template…',
+          click: (_item, window) => menuTarget(window)?.webContents.send(IPC.templateCommand, 'new'),
+        },
+        { type: 'separator' },
+        {
+          label: 'Save as Template…',
+          click: (_item, window) => menuTarget(window)?.webContents.send(IPC.templateCommand, 'save'),
+        },
+        {
+          label: 'Apply Template…',
+          click: (_item, window) => menuTarget(window)?.webContents.send(IPC.templateCommand, 'apply'),
+        },
+        { type: 'separator' },
+        isMac ? { role: 'close' } : { role: 'quit' },
+      ],
+    },
     { role: 'editMenu' },
     {
       label: 'View',

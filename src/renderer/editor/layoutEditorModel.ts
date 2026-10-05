@@ -15,12 +15,13 @@ import {
   promptCopy,
   slotKind,
   slotRoleClass,
-  syncDeckWithLayoutMasters,
   type FixedLayout,
   type SlotKind,
 } from '@shared/layoutMasters.js';
 import { ROLE_TYPE_SCALE_PROPERTIES } from '@shared/themes.js';
-import { applySlideLayout } from './slideLayouts.js';
+
+// Installing layouts needs no DOM; it lives with the layout model.
+export { installLayouts } from '@shared/layoutMasters.js';
 
 /**
  * The layout editor edits every layout as a slide of a throwaway deck: the
@@ -244,29 +245,6 @@ export function layoutsFromEditingDeck(
       };
     });
   return { masters, customLayouts };
-}
-
-/**
- * Install edited layouts into the real deck: slides on a layout that was
- * deleted move to the built-in it was based on (their content kept), then
- * every slide follows its layout.
- */
-export function installLayouts(
-  deck: Deck,
-  masters: NonNullable<Deck['layoutMasters']>,
-  customLayouts: CustomLayout[],
-): void {
-  const previous = new Map((deck.customLayouts ?? []).map((layout) => [layout.id, layout]));
-  deck.layoutMasters = masters;
-  deck.customLayouts = customLayouts;
-  const kept = new Set(customLayouts.map((layout) => layout.id));
-  for (const slide of deck.slides) {
-    const gone = slide.layout && !isBuiltInLayout(slide.layout) && !kept.has(slide.layout)
-      ? previous.get(slide.layout)
-      : undefined;
-    if (gone) applySlideLayout(slide, gone.basedOn, masters, customLayouts);
-  }
-  syncDeckWithLayoutMasters(deck);
 }
 
 /** How many of the deck's slides use each layout. */

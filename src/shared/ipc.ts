@@ -2,6 +2,7 @@ import type { Deck } from './deck.js';
 import type { DeckHistoryDocument } from './deckHistory.js';
 import type { AgentContextDraft, AgentRequest, AgentResponse } from './agent.js';
 import type { EditorViewSnapshot } from './editorView.js';
+import type { DeckTemplateDesign } from './deckTemplates.js';
 
 /**
  * The contract between the renderer and the main process. Both sides import
@@ -61,6 +62,14 @@ export const IPC = {
   viewToggleGrid: 'view:toggleGrid',
   /** Editor → main: the grid is now shown or hidden, for the menu's checkmark. */
   viewGridState: 'view:gridState',
+  /** Deck templates (see main/templateStore.ts). */
+  templateList: 'template:list',
+  templateSave: 'template:save',
+  templateDelete: 'template:delete',
+  templateNew: 'template:new',
+  templateTake: 'template:take',
+  /** Main → editor: a File menu template item was chosen. */
+  templateCommand: 'template:command',
   /** Main → editor: Arrange › Group or Ungroup was chosen from the menu. */
   arrangeCommand: 'arrange:command',
   agentContextPublish: 'agent:contextPublish',
@@ -344,3 +353,22 @@ export interface PresentationImportResult {
 
 /** @deprecated Kept for callers that predate the PowerPoint importer. */
 export type KeynoteImportResult = PresentationImportResult;
+
+/** A saved template, as a picker lists it (see main/templateStore.ts). */
+export interface TemplateSummary {
+  id: string;
+  name: string;
+  source: string;
+  savedAt: string;
+  theme: string | null;
+  layouts: number;
+  /** Its design, for drawing a preview. */
+  design: DeckTemplateDesign;
+}
+
+/** What saving a template answers: saved, or a name that is already taken. */
+export type TemplateSaveResult =
+  | { status: 'saved'; template: TemplateSummary }
+  | { status: 'exists'; id: string };
+
+export type TemplateCommand = 'new' | 'save' | 'apply';

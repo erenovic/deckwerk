@@ -109,6 +109,10 @@ export interface ThemePanelDeps {
   onPreviewSlide?: (slide: Slide | null, label: string) => void;
   /** Lay a theme draft's stylesheet over the editor; `null` removes it. */
   onPreviewThemeDraft?: (theme: ThemePreset | null) => void;
+  /** Save this deck's design as a template; absent where templates are not kept. */
+  onSaveTemplate?: () => void;
+  /** Dress this deck in a saved template. */
+  onApplyTemplate?: () => void;
 }
 
 export interface ThemePanel {
@@ -784,7 +788,20 @@ export function createThemePanel(deps: ThemePanelDeps): ThemePanel {
     const pageNumbersSection = panelSection('Page numbers', 'page-numbers-section');
     pageNumbersSection.append(pageNumbersHost);
 
-    wrap.append(intro, themeSection, applySection, layoutsSection, pageNumbersSection);
+    /* --- templates --- */
+    const sections = [intro, themeSection, applySection, layoutsSection, pageNumbersSection];
+    if (deps.onSaveTemplate || deps.onApplyTemplate) {
+      const templateSection = panelSection('Template', 'template-section');
+      templateSection.append(hintLine('Reuse this design in other decks, or take one on.'));
+      const row = document.createElement('div');
+      row.className = 'theme-default-row template-actions';
+      if (deps.onSaveTemplate) row.append(barButton('Save as Template…', () => deps.onSaveTemplate?.()));
+      if (deps.onApplyTemplate) row.append(barButton('Apply Template…', () => deps.onApplyTemplate?.()));
+      templateSection.append(row);
+      sections.push(templateSection);
+    }
+
+    wrap.append(...sections);
     refreshPreviousBadge();
     renderActiveTheme();
     renderMasters(true);

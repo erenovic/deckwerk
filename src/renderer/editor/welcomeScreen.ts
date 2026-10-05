@@ -3,6 +3,8 @@ export interface WelcomeActions {
   openPresentation: () => void | Promise<void>;
   importKeynote: () => void | Promise<void>;
   importPowerPoint: () => void | Promise<void>;
+  /** Start a deck from a saved template; omitted where templates are not kept. */
+  newFromTemplate?: () => void | Promise<void>;
 }
 
 /** The intentional no-deck state shown before the user opens any presentation. */
@@ -31,6 +33,9 @@ export class WelcomeScreen {
     choices.className = 'welcome-actions';
     choices.append(
       actionButton('New presentation', 'Start with a title and body slide', 'new', actions.newPresentation),
+      ...(actions.newFromTemplate
+        ? [actionButton('New from template', 'Start with the design of a deck you saved as a template', 'template', actions.newFromTemplate)]
+        : []),
       actionButton('Open presentation', 'Open a folder containing deck.json', 'open', actions.openPresentation),
       actionButton('Import from Keynote', 'Convert a .key presentation into an editable deck', 'keynote', actions.importKeynote),
       actionButton('Import from PowerPoint', 'Convert a .pptx presentation into an editable deck', 'powerpoint', actions.importPowerPoint),

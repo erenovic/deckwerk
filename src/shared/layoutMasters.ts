@@ -447,3 +447,41 @@ export function realignSlideToLayout(
   }
   return moved;
 }
+
+/** Apply layout geometry without consulting or mutating the installed theme. */
+export function applySlideLayout(
+  slide: Slide,
+  layout: string,
+  masters: Deck['layoutMasters'] = null,
+  customLayouts: Deck['customLayouts'] = [],
+): void {
+  const source = { layoutMasters: masters, customLayouts };
+  const id = resolvedLayoutId(source, layout);
+  syncSlideWithLayoutMaster(slide, id, resolveLayoutMaster(source, id), {
+    forceBackground: Boolean(masters) || customLayouts.some((custom) => custom.id === id),
+    replaceStyle: true,
+  });
+}
+
+/**
+ * Install edited layouts into the real deck: slides on a layout that was
+ * deleted move to the built-in it was based on (their content kept), then
+ * every slide follows its layout.
+ */
+export function installLayouts(
+  deck: Deck,
+  masters: NonNullable<Deck['layoutMasters']>,
+  customLayouts: CustomLayout[],
+): void {
+  const previous = new Map((deck.customLayouts ?? []).map((layout) => [layout.id, layout]));
+  deck.layoutMasters = masters;
+  deck.customLayouts = customLayouts;
+  const kept = new Set(customLayouts.map((layout) => layout.id));
+  for (const slide of deck.slides) {
+    const gone = slide.layout && !isBuiltInLayout(slide.layout) && !kept.has(slide.layout)
+      ? previous.get(slide.layout)
+      : undefined;
+    if (gone) applySlideLayout(slide, gone.basedOn, masters, customLayouts);
+  }
+  syncDeckWithLayoutMasters(deck);
+}

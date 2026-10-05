@@ -1,3 +1,5 @@
+import { applyTemplateToDeck } from '@shared/deckTemplates.js';
+import { confirmReplaceTemplate, showTemplateNameDialog, showTemplatePicker } from './templateDialogs.js';
 import '../player/player.css';
 import '../appChrome.css';
 import './editor.css';
@@ -149,6 +151,12 @@ new SlideWarnings(el('side'), store, el('canvas'), () => canvas.editingElementId
 canvas.onGridChange = (shown) => window.api.setGridState(shown);
 window.api.setGridState(canvas.isGridVisible());
 window.api.onToggleGrid(() => canvas.toggleGrid());
+// File › New from Template / Save as Template / Apply Template.
+window.api.onTemplateCommand((command) => {
+  if (command === 'new') void newFromTemplate();
+  else if (command === 'save') void saveAsTemplate();
+  else void applyTemplate();
+});
 // Arrange › Group / Ungroup act on the canvas selection, never mid-edit.
 window.api.onArrangeCommand((command) => {
   if (canvas.isEditing()) return;
@@ -242,6 +250,7 @@ function queueAgentSessionSnapshot(): void {
 }
 const welcome = new WelcomeScreen(el('canvas'), {
   newPresentation,
+  newFromTemplate,
   openPresentation,
   importKeynote: importKeynotePresentation,
   importPowerPoint: importPowerPointPresentation,
@@ -438,6 +447,7 @@ function buildToolbar(): void {
   ];
   const saveEntries = [
     { label: 'Deck…', action: () => void saveAsPresentation() },
+    { label: 'Template…', action: () => void saveAsTemplate() },
     {
       label: 'Lossy export',
       options: [
@@ -457,6 +467,7 @@ function buildToolbar(): void {
       label: 'Presentation',
       options: [
         { label: 'New', action: newPresentation },
+        { label: 'New from Template…', action: () => void newFromTemplate() },
         { label: 'Open…', action: openPresentation },
       ],
     },
@@ -465,6 +476,7 @@ function buildToolbar(): void {
       label: 'Save and export',
       options: [
         { label: 'Save As…', action: () => void saveAsPresentation() },
+        { label: 'Save as Template…', action: () => void saveAsTemplate() },
         { label: 'Export PDF…', action: () => void exportPdf() },
         { label: 'Export Web…', action: () => void exportWeb() },
       ],
@@ -815,6 +827,83 @@ async function newPresentation(): Promise<void> {
   }
 }
 
+/** File › New from Template: pick a saved design, then where the deck goes. */
+async function newFromTemplate(): Promise<void> {
+  const id = await showTemplatePicker({
+    heading: 'New from template',
+    actionLabel: 'Create deck…',
+    detail: 'The new deck starts with the template’s theme, layouts, page numbers and stylesheet, '
+      + 'and one slide on its title layout.',
+  });
+  if (!id) return;
+  try {
+    await runOperation('Creating presentation…', async (operation) => {
+      const session = await window.api.newDeckFromTemplate(id, operation.id);
+      if (session) await adopt(session.dir, session.deck, operation);
+    });
+  } catch (err) {
+    setStatusMessage(`Could not create presentation: ${err instanceof Error ? err.message : err}`);
+  }
+}
+
+/** File › Save as Template: keep this deck's design under a name. */
+async function saveAsTemplate(): Promise<void> {
+  const { dir, deck } = store.get();
+  if (!dir) {
+    setStatusMessage('Open a presentation to save its design as a template');
+    return;
+  }
+  const name = await showTemplateNameDialog(deck.title);
+  if (!name) return;
+  try {
+    await cssEditor.flush();
+    let result = await window.api.saveTemplate(name, store.get().deck, cssEditor.getValue());
+    if (result.status === 'exists') {
+      if (!(await confirmReplaceTemplate(name))) return;
+      result = await window.api.saveTemplate(name, store.get().deck, cssEditor.getValue(), true);
+    }
+    if (result.status === 'saved') setStatusMessage(`Saved template “${result.template.name}”`);
+  } catch (err) {
+    setStatusMessage(`Could not save the template: ${err instanceof Error ? err.message : err}`);
+  }
+}
+
+/**
+ * File › Apply Template: dress the open deck in a saved design, as one
+ * undoable change. The stylesheet is set before the change lands, so the
+ * theme block the editor writes for it goes into the new stylesheet.
+ */
+async function applyTemplate(): Promise<void> {
+  if (!store.get().dir) {
+    setStatusMessage('Open a presentation to apply a template to it');
+    return;
+  }
+  const id = await showTemplatePicker({
+    heading: 'Apply template',
+    actionLabel: 'Apply',
+    detail: 'Every slide takes on the template’s theme; its layouts, page numbers and stylesheet rules '
+      + 'join this deck. Undo puts the slides back; the stylesheet rules stay.',
+  });
+  if (!id) return;
+  try {
+    await runOperation('Applying template…', async (operation) => {
+      operation.update('Copying the template’s files');
+      const template = await window.api.takeTemplate(id);
+      operation.update(`Restyling slides with ${template.name}`);
+      const before = cssEditor.getValue();
+      const css = applyTemplateToDeck(structuredClone(store.get().deck), template, before);
+      cssEditor.setValue(css);
+      store.commit((deck) => {
+        applyTemplateToDeck(deck, template, before);
+      }, { label: `Apply template ${template.name}` });
+      await persistThemeCss(css);
+      setStatusMessage(`Applied template “${template.name}”`);
+    });
+  } catch (err) {
+    setStatusMessage(`Could not apply the template: ${err instanceof Error ? err.message : err}`);
+  }
+}
+
 async function openPresentation(): Promise<void> {
   try {
     await runOperation('Opening presentation…', async (operation) => {
@@ -900,6 +989,8 @@ const themePanel = createThemePanel({
   onEditLayouts: (layout) => designWorkspace.openLayoutEditor(layout),
   onPreviewSlide: (slide, label) => designWorkspace.previewSlideOnCanvas(slide, label),
   onPreviewThemeDraft: (theme) => designWorkspace.previewThemeDraft(theme),
+  onSaveTemplate: () => void saveAsTemplate(),
+  onApplyTemplate: () => void applyTemplate(),
 });
 rail.onSlideActivate = () => {
   themePanel.dismiss();

@@ -19,7 +19,18 @@ import {
 } from '@shared/clipboard.js';
 import { importClipboardImageUrl, importImageSource } from './clipboardImageFetch.js';
 import type { ClipboardImageSource } from '@shared/clipboardImages.js';
-import { IPC } from '@shared/ipc.js';
+import { IPC, type TemplateSaveResult, type TemplateSummary } from '@shared/ipc.js';
+import type { DeckTemplate } from '@shared/deckTemplates.js';
+import {
+  copyTemplateAssets,
+  createDeckFromTemplate,
+  deleteTemplate,
+  listTemplates,
+  readTemplate,
+  saveTemplate,
+  summarize as summarizeTemplate,
+  TemplateExistsError,
+} from './templateStore.js';
 import type {
   AgentContextDraft,
   AgentPanelState,
@@ -657,6 +668,56 @@ function registerHandlers(): void {
     const dir = deckFolderPath(res.filePath);
     reportOperation(event, operationId, `Creating ${basename(dir)}/deck.json`);
     const deck = await createDeck(dir, basename(dir));
+    reportOperation(event, operationId, 'Preparing the new presentation', 1);
+    return openDeckForRequester(requireOwner(event), dir, deck, event);
+  });
+
+  ipcMain.handle(IPC.templateList, async (): Promise<TemplateSummary[]> => listTemplates());
+
+  ipcMain.handle(IPC.templateSave, async (
+    event,
+    name: string,
+    deck: Deck,
+    css: string,
+    replace = false,
+  ): Promise<TemplateSaveResult> => {
+    const s = requireSession(event);
+    try {
+      const template = await saveTemplate(s.dir, parseDeck(deck), css, name, { replace });
+      return { status: 'saved', template: summarizeTemplate(template) };
+    } catch (error) {
+      if (error instanceof TemplateExistsError) return { status: 'exists', id: error.id };
+      throw error;
+    }
+  });
+
+  ipcMain.handle(IPC.templateDelete, async (_event, id: string): Promise<void> => deleteTemplate(id));
+
+  // Bring a template's files into the open deck and hand the template over;
+  // the editor applies its design as one undoable change.
+  ipcMain.handle(IPC.templateTake, async (event, id: string): Promise<DeckTemplate> => {
+    const s = requireSession(event);
+    const template = await readTemplate(id);
+    await copyTemplateAssets(template, s.dir);
+    return template;
+  });
+
+  ipcMain.handle(IPC.templateNew, async (
+    event,
+    id: string,
+    operationId?: string,
+  ): Promise<DeckSession | null> => {
+    const template = await readTemplate(id);
+    const res = await showSaveDialog({
+      title: `New deck from ${template.name}`,
+      buttonLabel: 'Create',
+      properties: ['createDirectory'],
+      defaultPath: 'Untitled deck',
+    });
+    if (res.canceled || !res.filePath) return null;
+    const dir = deckFolderPath(res.filePath);
+    reportOperation(event, operationId, `Creating ${basename(dir)} from ${template.name}`);
+    const deck = await createDeckFromTemplate(dir, template, basename(dir));
     reportOperation(event, operationId, 'Preparing the new presentation', 1);
     return openDeckForRequester(requireOwner(event), dir, deck, event);
   });

@@ -3567,6 +3567,45 @@ button.morph-object-hit.selected-source:hover:not(:disabled) {
 .paste-theme-detail { margin: 0; color: var(--muted); line-height: 1.6; }
 .paste-theme-actions { flex-wrap: wrap; }
 
+/* Template dialogs: a short list of saved designs, each shown by its title
+   slide, styled like the Design tab's layout previews. */
+.template-picker { width: min(640px, calc(100vw - 48px)); }
+.template-picker-detail { margin: 0; color: var(--muted); line-height: 1.6; }
+.template-list {
+  display: flex;
+  max-height: min(60vh, 520px);
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+}
+.template-row {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.template-row:hover { border-color: var(--accent); }
+.template-row.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft, rgb(59 130 246 / 22%));
+}
+.template-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.template-preview { pointer-events: none; }
+.template-text { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.template-text strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.template-meta { color: var(--muted); font-size: 11px; }
+.template-empty { margin: 0; padding: 18px 4px; color: var(--muted); line-height: 1.6; }
+.template-delete { margin-right: auto; }
+.template-delete[data-confirming] { border-color: var(--danger); color: var(--danger); }
+.template-name .field input { width: 100%; }
+.template-actions > button { flex: 1; }
+
 /* Every dialog is a scroll container (max-height + overflow: auto in
    appChrome.css), which clips an absolutely positioned menu inside it. A menu
    opened in a dialog is therefore placed in viewport coordinates instead; the

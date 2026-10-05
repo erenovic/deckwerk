@@ -37,3 +37,21 @@ replace that block. Hand-written rules belong outside it.
 files into `assets/fonts/`, declare them with `@font-face` in `theme.css`, and
 provide a fallback stack for the presentation machine.
 
+
+## Templates
+
+A template is a whole deck design kept apart from any one talk: the theme and
+the type and colour choices made on it, the deck's own themes and layouts, the
+layout masters, page numbers, slide size and the hand-written rules in
+`theme.css`. Templates live in `~/.deckwerk/templates`, shared with the
+editor's File › Save as Template.
+
+    slide-agent template list
+    slide-agent template save . --name "Lab talks"          # --replace to overwrite
+    slide-agent template new ../next-talk --template lab-talks --title "Next talk"
+    slide-agent template apply . --template lab-talks
+
+`new` writes a fresh deck folder with one slide on the template's title layout.
+`apply` restyles every existing slide like a deck-wide `theme apply`, adds the
+template's layouts (replacing any with the same id) and appends its CSS rules
+after the deck's own; the slide size is never changed.

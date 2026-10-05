@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   AGENT_PROTOCOL_VERSION,
@@ -45,6 +45,16 @@ import {
 } from '../main/agentRuntime.js';
 import { adoptAuthoredIds, htmlSyncSummary } from '@shared/htmlSlides.js';
 import { DECK_FILE, importAsset, importWebPage, loadDeck } from '../main/deckStore.js';
+import {
+  copyTemplateAssets,
+  createDeckFromTemplate,
+  listTemplates,
+  readTemplate,
+  saveTemplate,
+  summarize as summarizeTemplate,
+  TemplateExistsError,
+} from '../main/templateStore.js';
+import { applyTemplateToDeck } from '@shared/deckTemplates.js';
 import { injectWebBridgeRuntime } from '@shared/webBridge.js';
 import { measureBuiltTextOverflows } from './compileHtml.js';
 import { serveBundle } from './previewServer.js';
@@ -170,6 +180,15 @@ Everything else:
                                           restyle slides that already exist;
                                           every scope installs what it adopts
                                           into theme.css and pins the rest
+  template  list                          designs saved as templates, newest first
+  template  save [deck] --name <name> [--replace]
+                                          keep the deck's theme, layouts, page
+                                          numbers and theme.css as a template
+  template  new <folder> --template <id> [--title <title>]
+                                          a new deck wearing a template, with
+                                          one slide on its title layout
+  template  apply [deck] --template <id>  restyle every slide with a template
+                                          and add its layouts and CSS rules
   comments  [deck] [--unresolved]         every comment, with its slide number.
                                           Humans leave instructions this way —
                                           check it at the start of a task.
@@ -227,6 +246,8 @@ export async function runAgentCli(argv: string[], io: CliIo): Promise<number> {
         return await webCommand(rest, io);
       case 'theme':
         return await themeCommand(rest, io);
+      case 'template':
+        return await templateCommand(rest, io);
       case 'comments':
         return await commentsCommand(rest, io);
       case 'transaction':
@@ -1714,6 +1735,97 @@ async function themeCommand(argv: string[], io: CliIo): Promise<number> {
       throw new UsageError(`Unknown theme subcommand: ${subcommand ?? '(none)'}.`
         + ' Expected list, show, create, delete, choose or apply.');
   }
+}
+
+/**
+ * `template`: a deck's design kept under a name in ~/.deckwerk/templates, the
+ * same store File › Save as Template writes, so a design made in the editor
+ * can start a deck from here and the other way round.
+ */
+async function templateCommand(argv: string[], io: CliIo): Promise<number> {
+  const [subcommand, ...rest] = argv;
+  switch (subcommand) {
+    case 'list': {
+      ensureKnownFlags('template list', parseFlags(rest).flags, []);
+      const templates = await listTemplates();
+      io.out(json({ templates: templates.map(({ design: _design, ...summary }) => summary) }));
+      return EXIT_OK;
+    }
+    case 'save': return templateSaveCommand(rest, io);
+    case 'new': return templateNewCommand(rest, io);
+    case 'apply': return templateApplyCommand(rest, io);
+    default:
+      throw new UsageError(`Unknown template subcommand: ${subcommand ?? '(none)'}.`
+        + ' Expected list, save, new or apply.');
+  }
+}
+
+async function templateSaveCommand(argv: string[], io: CliIo): Promise<number> {
+  const { flags, options, positional } = parseFlags(argv, ['name']);
+  ensureKnownFlags('template save', flags, ['replace']);
+  ensurePositionals('template save', positional, 1);
+  const deckDir = resolveDeckDir(positional[0], io);
+  const name = options.get('name')?.trim();
+  if (!name) throw new UsageError('template save needs --name <name>');
+  const deck = await loadDeck(deckDir);
+  const cssPath = join(deckDir, deck.theme);
+  const css = existsSync(cssPath) ? await readFile(cssPath, 'utf8') : '';
+  try {
+    const template = await saveTemplate(deckDir, deck, css, name, { replace: flags.has('replace') });
+    const { design: _design, ...summary } = summarizeTemplate(template);
+    io.out(json({ status: 'saved', template: summary, assets: template.assets }));
+    return EXIT_OK;
+  } catch (error) {
+    if (!(error instanceof TemplateExistsError)) throw error;
+    io.err(`${error.message}. Pass --replace to overwrite it, or choose another --name.`);
+    return EXIT_ERROR;
+  }
+}
+
+async function templateNewCommand(argv: string[], io: CliIo): Promise<number> {
+  const { flags, options, positional } = parseFlags(argv, ['template', 'title']);
+  ensureKnownFlags('template new', flags, []);
+  ensurePositionals('template new', positional, 1);
+  const id = options.get('template');
+  if (!id || !positional[0]) throw new UsageError('template new needs a folder and --template <id>');
+  const dir = resolve(io.cwd, positional[0]);
+  const template = await readTemplate(id);
+  const deck = await createDeckFromTemplate(dir, template, options.get('title') ?? basename(dir));
+  io.out(json({ status: 'created', deck: dir, template: template.id, slides: deck.slides.length }));
+  return EXIT_OK;
+}
+
+async function templateApplyCommand(argv: string[], io: CliIo): Promise<number> {
+  const { flags, options, positional } = parseFlags(argv, ['template']);
+  ensureKnownFlags('template apply', flags, []);
+  ensurePositionals('template apply', positional, 1);
+  const deckDir = resolveDeckDir(positional[0], io);
+  const id = options.get('template');
+  if (!id) throw new UsageError('template apply needs --template <id>');
+  const template = await readTemplate(id);
+  const deck = await loadDeck(deckDir);
+  const cssPath = join(deckDir, deck.theme);
+  const before = existsSync(cssPath) ? await readFile(cssPath, 'utf8') : '';
+  const next = structuredClone(deck);
+  const css = applyTemplateToDeck(next, template, before);
+  const assets = await copyTemplateAssets(template, deckDir);
+
+  // An open editor rewrites theme.css from its own copy when the change lands,
+  // so the new stylesheet goes down first (and reaches the editor through its
+  // folder watcher) and again once the change has landed. A refusal puts the
+  // old one back: the folder must not describe a design deck.json never took.
+  const live = await readLiveAgentContext(deckDir);
+  if (live) {
+    await writeFile(cssPath, css, 'utf8');
+    await new Promise((settle) => setTimeout(settle, 400));
+  }
+  const code = await applyTransaction(deckDir, {
+    version: AGENT_PROTOCOL_VERSION,
+    label: `Apply template ${template.name}`,
+    operations: diffDecks(deck, next),
+  }, io, { template: template.id, slides: deck.slides.length, ...(assets.length > 0 ? { assets } : {}) });
+  await writeFile(cssPath, code === EXIT_OK ? css : before, 'utf8');
+  return code;
 }
 
 /** A preset trimmed to what a caller browsing the gallery needs. */
