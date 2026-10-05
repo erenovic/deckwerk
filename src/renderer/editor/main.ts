@@ -835,6 +835,8 @@ async function newFromTemplate(): Promise<void> {
     detail: 'The new deck starts with the template’s theme, layouts, page numbers and stylesheet, '
       + 'and one slide on its title layout.',
   });
+  // The picker can delete templates; the Design tab lists them too.
+  themePanel.refreshTemplates();
   if (!id) return;
   try {
     await runOperation('Creating presentation…', async (operation) => {
@@ -846,25 +848,29 @@ async function newFromTemplate(): Promise<void> {
   }
 }
 
-/** File › Save as Template: keep this deck's design under a name. */
-async function saveAsTemplate(): Promise<void> {
+/** File › Save as Template: keep this deck's design under a name. True once saved. */
+async function saveAsTemplate(): Promise<boolean> {
   const { dir, deck } = store.get();
   if (!dir) {
     setStatusMessage('Open a presentation to save its design as a template');
-    return;
+    return false;
   }
   const name = await showTemplateNameDialog(deck.title);
-  if (!name) return;
+  if (!name) return false;
   try {
     await cssEditor.flush();
     let result = await window.api.saveTemplate(name, store.get().deck, cssEditor.getValue());
     if (result.status === 'exists') {
-      if (!(await confirmReplaceTemplate(name))) return;
+      if (!(await confirmReplaceTemplate(name))) return false;
       result = await window.api.saveTemplate(name, store.get().deck, cssEditor.getValue(), true);
     }
-    if (result.status === 'saved') setStatusMessage(`Saved template “${result.template.name}”`);
+    if (result.status !== 'saved') return false;
+    setStatusMessage(`Saved template “${result.template.name}”`);
+    themePanel.refreshTemplates();
+    return true;
   } catch (err) {
     setStatusMessage(`Could not save the template: ${err instanceof Error ? err.message : err}`);
+    return false;
   }
 }
 
@@ -873,17 +879,18 @@ async function saveAsTemplate(): Promise<void> {
  * undoable change. The stylesheet is set before the change lands, so the
  * theme block the editor writes for it goes into the new stylesheet.
  */
-async function applyTemplate(): Promise<void> {
+async function applyTemplate(chosen?: string): Promise<void> {
   if (!store.get().dir) {
     setStatusMessage('Open a presentation to apply a template to it');
     return;
   }
-  const id = await showTemplatePicker({
+  const id = chosen ?? await showTemplatePicker({
     heading: 'Apply template',
     actionLabel: 'Apply',
     detail: 'Every slide takes on the template’s theme; its layouts, page numbers and stylesheet rules '
       + 'join this deck. Undo puts the slides back; the stylesheet rules stay.',
   });
+  if (!chosen) themePanel.refreshTemplates();
   if (!id) return;
   try {
     await runOperation('Applying template…', async (operation) => {
@@ -989,8 +996,12 @@ const themePanel = createThemePanel({
   onEditLayouts: (layout) => designWorkspace.openLayoutEditor(layout),
   onPreviewSlide: (slide, label) => designWorkspace.previewSlideOnCanvas(slide, label),
   onPreviewThemeDraft: (theme) => designWorkspace.previewThemeDraft(theme),
-  onSaveTemplate: () => void saveAsTemplate(),
-  onApplyTemplate: () => void applyTemplate(),
+  templates: {
+    list: () => window.api.listTemplates(),
+    save: () => saveAsTemplate(),
+    apply: (id) => applyTemplate(id),
+    remove: (id) => window.api.deleteTemplate(id),
+  },
 });
 rail.onSlideActivate = () => {
   themePanel.dismiss();

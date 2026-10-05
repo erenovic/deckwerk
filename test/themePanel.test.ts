@@ -691,3 +691,74 @@ describe('layouts of the deck’s own in the Design tab', () => {
     expect(onEditLayouts).toHaveBeenCalledWith('layout-cover');
   });
 });
+
+describe('the Design tab’s template library', () => {
+  const summary = (id: string, name: string) => {
+    const design = emptyDeck(name);
+    return {
+      id, name, source: 'Talk', savedAt: '2026-10-05T00:00:00.000Z', theme: null, layouts: 0,
+      design: {
+        canvas: design.canvas, themePreset: null, themeStyle: null, themeSelection: null, customThemes: [],
+        recentColors: [], pageNumbers: null, layoutMasters: null, customLayouts: [], morphEasing: 'ease-in-out' as const,
+      },
+    };
+  };
+  const flush = () => new Promise((settle) => setTimeout(settle, 0));
+
+  it('lists saved templates to pick from, applies the picked one and deletes on a second click', async () => {
+    let saved = [summary('looped', 'Looped'), summary('lab', 'Lab talks')];
+    const templates = {
+      list: vi.fn(async () => saved),
+      save: vi.fn(async () => {
+        saved = [summary('new', 'New design'), ...saved];
+        return true;
+      }),
+      apply: vi.fn(async () => {}),
+      remove: vi.fn(async (id: string) => { saved = saved.filter((template) => template.id !== id); }),
+    };
+    const panel = createThemePanel({
+      store: new EditorStore(emptyDeck('Templates'), '/tmp/templates'),
+      cssEditor: { getValue: () => '', setValue: vi.fn() } as unknown as CssEditor,
+      save: vi.fn(),
+      setStatusMessage: vi.fn(),
+      saveThemeCss: vi.fn(),
+      templates,
+    });
+    document.body.appendChild(panel.element);
+    await flush();
+
+    const section = panel.element.querySelector<HTMLElement>('.template-section')!;
+    const rows = () => [...section.querySelectorAll<HTMLElement>('.template-row')];
+    const button = (label: string) => [...section.querySelectorAll<HTMLButtonElement>('button')]
+      .find((candidate) => candidate.textContent?.startsWith(label))!;
+    expect(rows().map((row) => row.dataset.templateId)).toEqual(['looped', 'lab']);
+    expect(button('Apply to this deck').disabled).toBe(true);
+
+    rows()[1].click();
+    expect(rows()[1].classList.contains('selected')).toBe(true);
+    button('Apply to this deck').click();
+    expect(templates.apply).toHaveBeenCalledWith('lab');
+
+    button('Delete').click();
+    expect(templates.remove).not.toHaveBeenCalled();
+    button('Click again').click();
+    await flush();
+    expect(templates.remove).toHaveBeenCalledWith('lab');
+    expect(rows().map((row) => row.dataset.templateId)).toEqual(['looped']);
+
+    button('Save this design').click();
+    await flush();
+    expect(rows().map((row) => row.dataset.templateId)).toEqual(['new', 'looped']);
+  });
+
+  it('is left out where templates are not kept', () => {
+    const panel = createThemePanel({
+      store: new EditorStore(emptyDeck('No templates'), '/tmp/none'),
+      cssEditor: { getValue: () => '', setValue: vi.fn() } as unknown as CssEditor,
+      save: vi.fn(),
+      setStatusMessage: vi.fn(),
+      saveThemeCss: vi.fn(),
+    });
+    expect(panel.element.querySelector('.template-section')).toBeNull();
+  });
+});

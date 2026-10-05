@@ -1,3 +1,5 @@
+import type { TemplateSummary } from '@shared/ipc.js';
+import { templateRow } from './templateDialogs.js';
 import { PAGE_NUMBER_POSITIONS, type Deck, type PageNumbers, type Slide, type ThemeStyle } from '@shared/deck.js';
 import { DEFAULT_PAGE_NUMBERS } from '@shared/pageNumbers.js';
 import type { FixedLayout } from '@shared/layoutMasters.js';
@@ -109,10 +111,18 @@ export interface ThemePanelDeps {
   onPreviewSlide?: (slide: Slide | null, label: string) => void;
   /** Lay a theme draft's stylesheet over the editor; `null` removes it. */
   onPreviewThemeDraft?: (theme: ThemePreset | null) => void;
-  /** Save this deck's design as a template; absent where templates are not kept. */
-  onSaveTemplate?: () => void;
-  /** Dress this deck in a saved template. */
-  onApplyTemplate?: () => void;
+  /** The saved templates, listed in the panel; absent where templates are not kept. */
+  templates?: TemplateActions;
+}
+
+/** What the Design tab's template list can do (the desktop shell provides it). */
+export interface TemplateActions {
+  list(): Promise<TemplateSummary[]>;
+  /** Save this deck's design, asking for a name; true once saved. */
+  save(): Promise<boolean>;
+  /** Dress this deck in the template. */
+  apply(id: string): Promise<void>;
+  remove(id: string): Promise<void>;
 }
 
 export interface ThemePanel {
@@ -126,6 +136,8 @@ export interface ThemePanel {
   applyButtonLabel(): string;
   /** Close the theme chooser/editor and end its central preview session. */
   dismiss(): boolean;
+  /** List the saved templates again, after one was saved or deleted elsewhere. */
+  refreshTemplates(): void;
 }
 
 export function createThemePanel(deps: ThemePanelDeps): ThemePanel {
@@ -790,16 +802,7 @@ export function createThemePanel(deps: ThemePanelDeps): ThemePanel {
 
     /* --- templates --- */
     const sections = [intro, themeSection, applySection, layoutsSection, pageNumbersSection];
-    if (deps.onSaveTemplate || deps.onApplyTemplate) {
-      const templateSection = panelSection('Template', 'template-section');
-      templateSection.append(hintLine('Reuse this design in other decks, or take one on.'));
-      const row = document.createElement('div');
-      row.className = 'theme-default-row template-actions';
-      if (deps.onSaveTemplate) row.append(barButton('Save as Template…', () => deps.onSaveTemplate?.()));
-      if (deps.onApplyTemplate) row.append(barButton('Apply Template…', () => deps.onApplyTemplate?.()));
-      templateSection.append(row);
-      sections.push(templateSection);
-    }
+    if (deps.templates) sections.push(buildTemplateSection(deps.templates));
 
     wrap.append(...sections);
     refreshPreviousBadge();
@@ -808,6 +811,89 @@ export function createThemePanel(deps: ThemePanelDeps): ThemePanel {
     renderReadouts();
     renderPageNumbers(true);
     return wrap;
+  }
+
+  /* --- templates --- */
+
+  let renderTemplateList: (() => void) | null = null;
+
+  /**
+   * The saved templates as a list to pick from, with the actions on them:
+   * apply the picked one to this deck, delete it, or save this deck's design
+   * as another. They live in one folder for every deck, so the list is the
+   * whole library.
+   */
+  function buildTemplateSection(actions: TemplateActions): HTMLElement {
+    const section = panelSection('Templates', 'template-section');
+    const list = document.createElement('div');
+    list.className = 'template-list design-template-list';
+    list.setAttribute('role', 'listbox');
+    list.setAttribute('aria-label', 'Saved templates');
+    const apply = barButton('Apply to this deck', () => {
+      if (selected) void actions.apply(selected);
+    }, 'primary');
+    const remove = barButton('Delete', () => {
+      if (!selected) return;
+      // A second click confirms, so one stray click never loses a template.
+      if (!remove.dataset.confirming) {
+        remove.dataset.confirming = 'true';
+        remove.textContent = 'Click again';
+        return;
+      }
+      const id = selected;
+      selected = null;
+      void actions.remove(id).then(() => renderTemplateList?.());
+    });
+    remove.classList.add('template-delete');
+    const actionRow = document.createElement('div');
+    actionRow.className = 'theme-default-row template-actions';
+    actionRow.append(apply, remove);
+    const save = barButton('Save this design as a template…', () => {
+      void actions.save().then((saved) => {
+        if (saved) renderTemplateList?.();
+      });
+    });
+    save.classList.add('theme-section-action');
+    section.append(list, actionRow, save);
+
+    let selected: string | null = null;
+    let observers: ResizeObserver[] = [];
+    const sync = () => {
+      for (const row of list.querySelectorAll<HTMLElement>('.template-row')) {
+        const on = row.dataset.templateId === selected;
+        row.classList.toggle('selected', on);
+        row.setAttribute('aria-selected', String(on));
+      }
+      apply.disabled = selected === null;
+      remove.disabled = selected === null;
+      remove.textContent = 'Delete';
+      delete remove.dataset.confirming;
+    };
+    renderTemplateList = () => {
+      void actions.list().then((templates) => {
+        for (const observer of observers) observer.disconnect();
+        observers = [];
+        list.replaceChildren();
+        if (!templates.some((template) => template.id === selected)) selected = null;
+        if (templates.length === 0) {
+          list.appendChild(hintLine('No templates yet. Save this deck’s design to start your library.', 'template-empty'));
+        }
+        for (const template of templates) {
+          const { row, observer } = templateRow(template);
+          if (observer) observers.push(observer);
+          row.addEventListener('click', () => {
+            selected = template.id;
+            sync();
+          });
+          row.addEventListener('dblclick', () => void actions.apply(template.id));
+          list.appendChild(row);
+        }
+
+        sync();
+      });
+    };
+    renderTemplateList();
+    return section;
   }
 
   /* --- staged theme editor --- */
@@ -1020,6 +1106,7 @@ export function createThemePanel(deps: ThemePanelDeps): ThemePanel {
     refreshSwatches,
     syncScope,
     applyButtonLabel,
+    refreshTemplates: () => renderTemplateList?.(),
     dismiss: () => {
       const wasOpen = themePreviewOpen
         || Boolean(chooser && !chooser.hidden)

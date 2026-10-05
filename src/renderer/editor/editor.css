@@ -3605,6 +3605,14 @@ button.morph-object-hit.selected-source:hover:not(:disabled) {
 .template-delete[data-confirming] { border-color: var(--danger); color: var(--danger); }
 .template-name .field input { width: 100%; }
 .template-actions > button { flex: 1; }
+/* In the Design tab the list is narrow: a smaller preview beside the name,
+   and room for a handful of templates before it scrolls. */
+.design-template-list { max-height: 340px; gap: 4px; }
+.design-template-list .template-row { grid-template-columns: 96px minmax(0, 1fr); gap: 10px; padding: 6px; }
+.design-template-list .template-text strong { font-size: 12px; }
+.design-template-list .template-meta { font-size: 10px; line-height: 1.4; }
+.design-template-list .template-empty { padding: 4px 0; }
+.template-actions .template-delete { flex: 0 0 auto; margin-right: 0; }
 
 /* Every dialog is a scroll container (max-height + overflow: auto in
    appChrome.css), which clips an absolutely positioned menu inside it. A menu

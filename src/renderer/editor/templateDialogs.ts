@@ -85,6 +85,32 @@ function preview(template: TemplateSummary): { frame: HTMLElement; observer: Res
 }
 
 /**
+ * One template as a list row: its title slide, its name, what it brings.
+ * Shared by the picker dialogs and the Design tab's list. The preview keeps
+ * itself scaled through `observer`, which the owner disconnects.
+ */
+export function templateRow(template: TemplateSummary): { row: HTMLButtonElement; observer: ResizeObserver | null } {
+  const row = document.createElement('button');
+  row.type = 'button';
+  row.className = 'template-row';
+  row.dataset.templateId = template.id;
+  row.setAttribute('role', 'option');
+  row.title = template.name;
+  const tile = preview(template);
+  tile.frame.classList.add('template-preview');
+  const text = document.createElement('span');
+  text.className = 'template-text';
+  const name = document.createElement('strong');
+  name.textContent = template.name;
+  const meta = document.createElement('span');
+  meta.className = 'template-meta';
+  meta.textContent = describe(template);
+  text.append(name, meta);
+  row.append(tile.frame, text);
+  return { row, observer: tile.observer };
+}
+
+/**
  * Choose a saved template. Resolves its id, or null when cancelled. Templates
  * can be deleted from here too, which is the only place they are listed.
  */
@@ -143,23 +169,8 @@ export function showTemplatePicker(options: {
         list.appendChild(empty);
       }
       for (const template of templates) {
-        const row = document.createElement('button');
-        row.type = 'button';
-        row.className = 'template-row';
-        row.dataset.templateId = template.id;
-        row.setAttribute('role', 'option');
-        const tile = preview(template);
-        if (tile.observer) observers.push(tile.observer);
-        tile.frame.classList.add('template-preview');
-        const text = document.createElement('span');
-        text.className = 'template-text';
-        const name = document.createElement('strong');
-        name.textContent = template.name;
-        const meta = document.createElement('span');
-        meta.className = 'template-meta';
-        meta.textContent = describe(template);
-        text.append(name, meta);
-        row.append(tile.frame, text);
+        const { row, observer } = templateRow(template);
+        if (observer) observers.push(observer);
         row.addEventListener('click', () => {
           selected = template.id;
           sync();

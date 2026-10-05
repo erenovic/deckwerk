@@ -155,5 +155,23 @@ describe.skipIf(!electronBinary)('deck templates in the desktop app', () => {
     await editor.click('.template-picker button.primary', 'Apply');
     await eventually(async () => editor!.evaluate<string>('document.getElementById("status")?.textContent ?? ""'),
       'Apply Template reported nothing', (text) => text.includes('Applied template'));
+
+    // The Design tab lists the library too: both templates, pick one, apply.
+    await editor.click('#side-tabs button[data-panel="themePanel"]', 'Design tab');
+    await eventually(async () => editor!.evaluate<number>(
+      'document.querySelectorAll(".design-template-list .template-row").length'),
+    'the Design tab did not list both templates', (count) => count === 2);
+    await editor.evaluate(`(() => {
+      document.querySelector('.design-template-list .template-row[data-template-id="looped"]').click();
+      return true;
+    })()`);
+    await editor.evaluate(`(() => {
+      const apply = [...document.querySelectorAll('.template-section button')]
+        .find((button) => button.textContent === 'Apply to this deck');
+      apply.click();
+      return true;
+    })()`);
+    await eventually(async () => editor!.evaluate<string>('document.getElementById("status")?.textContent ?? ""'),
+      'applying from the Design tab reported nothing', (text) => text.includes('Applied template “Looped”'));
   });
 });
