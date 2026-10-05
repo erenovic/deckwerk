@@ -337,3 +337,82 @@ describe('layouts of the deck’s own in the layout editor', () => {
     expect(columns.length).toBeGreaterThanOrEqual(3);
   });
 });
+
+describe('shortcuts in the layout editor', () => {
+  beforeEach(() => {
+    document.head.replaceChildren();
+    document.body.replaceChildren();
+    installDomShims();
+  });
+
+  const press = (init: KeyboardEventInit) => document.body.dispatchEvent(
+    new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }),
+  );
+  const flush = () => new Promise((settle) => setTimeout(settle, 0));
+  const layoutImages = () => document.querySelectorAll('.layout-editor-canvas [data-element-type="image"]').length;
+
+  /** A deck whose slide has a selected object of its own, which no layout key may touch. */
+  function withSelectedSlideObject() {
+    const deck = emptyDeck('Shortcuts');
+    deck.layoutMasters = defaultLayoutMasters();
+    deck.slides[0].elements = [{
+      id: 'slide-photo', type: 'image', x: 100, y: 100, w: 400, h: 300, rot: 0, z: 1, opacity: 1,
+      class: [], style: {}, src: 'assets/photo.png', fit: 'contain', sourceBox: null,
+    }];
+    const made = build(deck);
+    made.store.select(['slide-photo']);
+    // Stands in for the shell's own key handler, which acts on the deck.
+    const reachedShell = vi.fn();
+    window.addEventListener('keydown', reachedShell);
+    return { ...made, reachedShell };
+  }
+
+  it('pastes a copied picture onto the layout, not onto the slide behind it, and deletes it again', async () => {
+    const { workspace, store, reachedShell } = withSelectedSlideObject();
+    (window.api as unknown as Record<string, unknown>).readClipboard = async () => ({
+      kind: 'external-image',
+      asset: { src: 'assets/logo.png', kind: 'image', width: 400, height: 200, duration: null },
+    });
+    workspace.openLayoutEditor('standard');
+
+    press({ key: 'v', metaKey: true, ctrlKey: true });
+    await flush();
+    expect(layoutImages()).toBe(1);
+    expect(store.slide!.elements.map((element) => element.id)).toEqual(['slide-photo']);
+
+    press({ key: 'Backspace' });
+    expect(layoutImages()).toBe(0);
+    expect(store.slide!.elements.map((element) => element.id)).toEqual(['slide-photo']);
+    expect(reachedShell).not.toHaveBeenCalled();
+  });
+
+  it('keeps the pasted logo when the layouts are saved', async () => {
+    const { workspace, store } = withSelectedSlideObject();
+    (window.api as unknown as Record<string, unknown>).readClipboard = async () => ({
+      kind: 'external-image',
+      asset: { src: 'assets/logo.png', kind: 'image', width: 400, height: 200, duration: null },
+    });
+    workspace.openLayoutEditor('standard');
+    press({ key: 'v', metaKey: true, ctrlKey: true });
+    await flush();
+    clickInOverlay('.layout-editor-actions', 'Done');
+    expect(store.get().deck.layoutMasters!.standard.elements
+      .some((element) => element.type === 'image' && element.src === 'assets/logo.png')).toBe(true);
+  });
+
+  it('refuses copied slides, and gives the shortcuts back when it closes', async () => {
+    const { workspace, store, reachedShell } = withSelectedSlideObject();
+    (window.api as unknown as Record<string, unknown>).readClipboard = async () => ({
+      kind: 'slides', slides: [structuredClone(store.slide!)], assets: [],
+    });
+    workspace.openLayoutEditor('standard');
+    const layouts = document.querySelectorAll('.layout-editor-rail .layout-editor-rail-item, .layout-editor-rail [data-slide-id]').length;
+    press({ key: 'v', metaKey: true, ctrlKey: true });
+    await flush();
+    expect(document.querySelectorAll('.layout-editor-rail .layout-editor-rail-item, .layout-editor-rail [data-slide-id]').length).toBe(layouts);
+
+    clickInOverlay('.layout-editor-actions', 'Cancel');
+    press({ key: 'ArrowLeft' });
+    expect(reachedShell).toHaveBeenCalledTimes(1);
+  });
+});

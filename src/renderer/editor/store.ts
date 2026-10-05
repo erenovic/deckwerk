@@ -1173,6 +1173,13 @@ export async function copySlidesToClipboard(store: EditorStore, currentThemeCss?
 export type SlidePasteThemeChoice = 'source' | 'destination';
 
 export interface PasteOptions {
+  /**
+   * Pasting onto a layout in the layout editor: objects and pictures only.
+   * Copied slides are refused (a layout is not a deck), and a pasted
+   * placeholder arrives as plain text, since a layout's slots are made with
+   * the Placeholder picker and builds do not exist there.
+   */
+  objectsOnly?: boolean;
   destinationThemeCss?: string;
   chooseSlideTheme?: (details: {
     count: number;
@@ -1237,6 +1244,7 @@ export async function pasteFromClipboard(
   }
 
   if (payload.kind === 'slides') {
+    if (options.objectsOnly) return null;
     const slides = structuredClone(payload.slides);
     const destination = effectiveThemeStyle(store.get().deck, options.destinationThemeCss);
     const source = payload.sourceThemeStyle;
@@ -1260,7 +1268,14 @@ export async function pasteFromClipboard(
   }
 
   const elements = structuredClone(payload.elements);
-  const timeline = structuredClone(payload.timeline);
+  const timeline = options.objectsOnly ? [] : structuredClone(payload.timeline);
+  if (options.objectsOnly) {
+    for (const element of elements) {
+      delete element.layoutMasterId;
+      element.class = element.class.filter((name) => name !== 'layout-master-element' && name !== 'placeholder');
+      if (element.type === 'text') delete element.layoutPlaceholder;
+    }
+  }
 
   /*
    * Position, as in Figma: a paste lands exactly where the elements were

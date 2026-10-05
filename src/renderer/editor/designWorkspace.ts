@@ -35,7 +35,7 @@ import {
   uniqueLayoutName,
 } from './layoutEditorModel.js';
 import { barButton, wireCanvasInspector } from './shellWiring.js';
-import { EditorStore } from './store.js';
+import { EditorStore, copySelectionToClipboard, pasteFromClipboard } from './store.js';
 import { openMenu, type MenuItem } from './ui.js';
 
 export interface DesignWorkspaceDeps {
@@ -558,6 +558,78 @@ export class DesignWorkspace {
     masterStore.subscribe(refresh);
     refresh();
 
+    /*
+     * The editor's shortcuts, aimed at the layout being edited. The shell's
+     * own handler acts on the deck behind this overlay, so without this ⌘V
+     * pasted onto a slide nobody could see and Delete removed objects from it.
+     * Capture phase, so it answers first and the shell never sees the key.
+     */
+    const onKey = (event: KeyboardEvent): void => {
+      // An overlay taken away without closing leaves nothing to aim keys at.
+      if (!overlay.isConnected) {
+        window.removeEventListener('keydown', onKey, true);
+        return;
+      }
+      if (document.querySelector('[aria-modal="true"]')) return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      // Typing in a box, a field or the name of a layout keeps its keys.
+      if (masterCanvas.isEditing() || target?.isContentEditable
+        || (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      const mod = event.metaKey || event.ctrlKey;
+      const key = event.key.toLowerCase();
+      const run = (action: () => unknown): void => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        void action();
+      };
+      if (mod && !event.altKey && key === 'v') {
+        run(async () => {
+          const pasted = await pasteFromClipboard(masterStore, undefined, { objectsOnly: true });
+          if (!pasted) this.deps.setStatusMessage('Nothing to paste onto a layout: copy a picture or objects first.');
+        });
+      } else if (mod && key === 'c') {
+        run(() => copySelectionToClipboard(masterStore));
+      } else if (mod && key === 'x') {
+        run(async () => {
+          await copySelectionToClipboard(masterStore);
+          deleteUnlocked(masterStore);
+        });
+      } else if (mod && key === 'd') {
+        run(() => duplicateUnlocked(masterStore));
+      } else if (mod && key === 'z') {
+        run(() => (event.shiftKey ? masterStore.redo() : masterStore.undo()));
+      } else if (mod && key === 'a') {
+        run(() => masterStore.selectAllElements());
+      } else if (mod && !event.altKey && event.code === 'KeyG') {
+        run(() => (event.shiftKey ? masterStore.ungroupSelected() : masterStore.groupSelected()));
+      } else if (!mod && (event.key === 'Backspace' || event.key === 'Delete')) {
+        run(() => deleteUnlocked(masterStore));
+      } else if (!mod && event.key.startsWith('Arrow')) {
+        if (masterStore.get().selection.size === 0) {
+          event.stopImmediatePropagation();
+          return;
+        }
+        const step = event.shiftKey ? 10 : 1;
+        const dx = event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0;
+        const dy = event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0;
+        run(() => masterStore.updateSelected((element) => {
+          element.x += dx;
+          element.y += dy;
+          if (element.type === 'shape' && element.control) {
+            element.control.x += dx;
+            element.control.y += dy;
+          }
+        }, { label: 'Nudge' }));
+      } else if (mod && key !== 's' && key !== 'q' && key !== 'w') {
+        // Every other editor shortcut would reach the hidden deck; saving and
+        // the app's own window keys still pass.
+        event.stopImmediatePropagation();
+      } else if (!mod && key === 'n') {
+        event.stopImmediatePropagation();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+
     const close = (save: boolean): void => {
       if (save) {
         const { masters, customLayouts } = layoutsFromEditingDeck(masterStore.get().deck, meta);
@@ -569,6 +641,7 @@ export class DesignWorkspace {
           ? `Updated the layouts: 3 built-in, ${customLayouts.length} of your own.`
           : 'Updated the built-in layouts.');
       }
+      window.removeEventListener('keydown', onKey, true);
       overlay.remove();
       this.editingOverlay = null;
       this.closeLayoutEditor = null;
