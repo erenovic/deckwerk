@@ -357,7 +357,7 @@ describe('shortcuts in the layout editor', () => {
     deck.layoutMasters = defaultLayoutMasters();
     deck.slides[0].elements = [{
       id: 'slide-photo', type: 'image', x: 100, y: 100, w: 400, h: 300, rot: 0, z: 1, opacity: 1,
-      class: [], style: {}, src: 'assets/photo.png', fit: 'contain', sourceBox: null,
+      class: [], style: {}, src: 'assets/photo.png', alt: '', fit: 'contain', sourceBox: null,
     }];
     const made = build(deck);
     made.store.select(['slide-photo']);
