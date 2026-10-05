@@ -68,6 +68,10 @@ export const IPC = {
   templateDelete: 'template:delete',
   templateNew: 'template:new',
   templateTake: 'template:take',
+  /** Main → editor: View › Show Slide List / Show Sidebar was chosen. */
+  viewTogglePanel: 'view:togglePanel',
+  /** Editor → main: which panels are showing, for the menu's checkmarks. */
+  viewPanelState: 'view:panelState',
   /** Main → editor: a File menu template item was chosen. */
   templateCommand: 'template:command',
   /** Main → editor: Arrange › Group or Ungroup was chosen from the menu. */

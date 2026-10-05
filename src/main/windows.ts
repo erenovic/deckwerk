@@ -129,13 +129,19 @@ function showFullscreenWindow(win: BrowserWindow): void {
  * share of the screen — two columns on a 1920px display is ~940px — and a
  * client that insists on more simply renders wider than the box it was given,
  * so its right edge disappears under the neighbour and the window stops
- * tracking the tile. The editor layout has no need for the floor anyway: the
- * rail bottoms out at 150px and the sidebar at 240px, leaving the canvas the
- * rest. So on Linux the request drops to a token floor and the compositor
- * decides; elsewhere the stated minimum stands.
+ * tracking the tile. macOS Split View asks the same question the other way
+ * round: it offers to tile only windows that can shrink to half the screen
+ * (about 735px on a 13" MacBook), and a larger minimum quietly leaves the
+ * window out. The editor layout has no need for the floor anyway: the rail
+ * bottoms out at 150px and the sidebar at 240px, leaving the canvas the rest,
+ * and the toolbar folds down to icons. So on Linux the request drops to a
+ * token floor, on macOS to the narrowest width the editor still works at
+ * (600px, under half of a 1280pt screen), and on Windows, where snapping
+ * resizes windows regardless, the stated minimum stands.
  */
 function minimumSize(width: number, height: number): { minWidth: number; minHeight: number } {
   if (process.platform === 'linux') return { minWidth: 480, minHeight: 360 };
+  if (process.platform === 'darwin') return { minWidth: 600, minHeight: 480 };
   return { minWidth: width, minHeight: height };
 }
 

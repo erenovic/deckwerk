@@ -34,6 +34,11 @@ html, body {
 #app {
   display: grid;
   grid-template-rows: 44px 1fr 24px;
+  /* The window's width, never the toolbar's: a column sized to its content
+     let a narrow window (half a screen in Split View) lay the page out wider
+     than itself, pushing the sidebar off the edge and hiding the overflow
+     from the toolbar's own compaction (responsiveToolbar.ts). */
+  grid-template-columns: minmax(0, 1fr);
   height: 100vh;
 }
 
@@ -116,6 +121,8 @@ body.welcome-mode .toolbar-expanded-file-actions { display: inline-flex; }
 }
 #toolbar.toolbar-compact-secondary .toolbar-expanded-secondary-actions { display: none; }
 #toolbar.toolbar-compact-secondary .toolbar-compact-secondary-action { display: inline-block; }
+#toolbar.toolbar-icons-only .bar-center :is(.bar-icon-button, .shape-menu-trigger) > span { display: none; }
+#toolbar.toolbar-hide-brand .brand-button { display: none; }
 
 .bar-right { margin-left: auto; }
 
@@ -517,6 +524,30 @@ body.panel-resizing iframe { pointer-events: none; }
 }
 
 .notes-toggle:hover { background: var(--panel-2); }
+
+/* Slide list and sidebar toggles: the notes button's twins, one beside it and
+   one at the far right, with the zoom controls moved in to make room. */
+.panel-toggle {
+  position: absolute;
+  z-index: 20;
+  bottom: 12px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  color: var(--text);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 35%);
+  cursor: pointer;
+}
+.panel-toggle:hover { background: var(--panel-2); }
+.panel-toggle[aria-pressed="true"] { color: var(--accent); }
+.panel-toggle-rail { left: 48px; }
+.panel-toggle-side { right: 12px; }
+.canvas-host:has(> .panel-toggle-side) > .zoom-controls { right: 48px; }
 .notes-toggle.active { color: var(--accent); }
 
 .notes-toggle .notes-toggle-dot {
@@ -533,6 +564,7 @@ body.panel-resizing iframe { pointer-events: none; }
 .notes-toggle.has-notes .notes-toggle-dot { display: block; }
 
 .canvas-host.notes-open > .notes-toggle,
+.canvas-host.notes-open > .panel-toggle,
 .canvas-host.notes-open > .zoom-controls {
   bottom: calc(var(--notes-drawer-height, 180px) + 12px);
 }
@@ -700,6 +732,16 @@ body.panel-resizing iframe { pointer-events: none; }
 }
 
 /* --- no-deck welcome --- */
+
+/* A hidden slide list or sidebar gives its column back to the canvas (see
+   panelToggles.ts). The welcome screen, below, still wins. */
+#body.rail-collapsed { grid-template-columns: minmax(0, 1fr) auto; }
+#body.side-collapsed { grid-template-columns: auto minmax(0, 1fr); }
+#body.rail-collapsed.side-collapsed { grid-template-columns: minmax(0, 1fr); }
+#body.rail-collapsed > #rail,
+#body.rail-collapsed > .panel-resize-rail,
+#body.side-collapsed > #side,
+#body.side-collapsed > .panel-resize-side { display: none; }
 
 #body.welcome-mode { grid-template-columns: 1fr; }
 #body.welcome-mode > #rail,

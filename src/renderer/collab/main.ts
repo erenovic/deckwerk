@@ -1,3 +1,4 @@
+import { PanelToggles } from '../editor/panelToggles.js';
 import '../player/player.css';
 import '../appChrome.css';
 import '../editor/editor.css';
@@ -236,6 +237,7 @@ const notesDrawer = new SpeakerNotesDrawer(el('canvas'), store, {
   onStatus: setStatusMessage,
 });
 const findBar = new FindBar(el('canvas'), store, { notes: notesDrawer });
+const panels = new PanelToggles(el('body'), el('canvas'));
 new SlideWarnings(el('side'), store, el('canvas'), () => canvas.editingElementId());
 const inspector = new Inspector(el('inspector'), store);
 new TimelinePanel(el('timeline'), store);
@@ -413,6 +415,7 @@ const shellDeps: ShellDeps = {
   undo: () => bridge.undo(store.get().deck),
   redo: () => bridge.redo(store.get().deck),
   openFind: () => findBar.show(),
+  togglePanel: (panel) => panels.toggle(panel),
 };
 const clipboard = createClipboardActions(shellDeps);
 bindEditorKeys(shellDeps, clipboard);

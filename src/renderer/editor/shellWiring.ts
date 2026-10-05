@@ -58,6 +58,8 @@ export interface ShellDeps {
   redo?: () => void;
   /** Cmd/Ctrl+F: open the find bar. */
   openFind?: () => void;
+  /** Show or hide the slide list or the sidebar (⌥⌘1, ⌥⌘2); see panelToggles.ts. */
+  togglePanel?: (panel: 'rail' | 'side') => void;
 }
 
 export function wireCanvasInspector(
@@ -306,6 +308,17 @@ export function bindEditorKeys(deps: ShellDeps, clipboard: ClipboardActions): vo
     e.preventDefault();
     e.stopPropagation();
     canvas.toggleGrid();
+  }, true);
+  // ⌥⌘1 / ⌥⌘2 hide or show the slide list and the sidebar from anywhere,
+  // text editing included, like the grid. Option changes `key` on macOS, so
+  // the physical key is read.
+  window.addEventListener('keydown', (e) => {
+    if (!deps.togglePanel || !(e.metaKey || e.ctrlKey) || !e.altKey || e.shiftKey) return;
+    if (e.code !== 'Digit1' && e.code !== 'Digit2') return;
+    if (document.querySelector('[aria-modal="true"]')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    deps.togglePanel(e.code === 'Digit1' ? 'rail' : 'side');
   }, true);
   window.addEventListener('keydown', (e) => {
     if (!deps.openFind || document.querySelector('[aria-modal="true"]')) return;
@@ -588,6 +601,9 @@ export function barIconButton(label: string, iconSvg: string, onClick: () => voi
   const b = document.createElement('button');
   b.className = 'bar-icon-button';
   b.innerHTML = `${iconSvg}<span>${label}</span>`;
+  // The label hides on a narrow toolbar; the name stays reachable.
+  b.title = label;
+  b.setAttribute('aria-label', label);
   b.addEventListener('click', onClick);
   return b;
 }

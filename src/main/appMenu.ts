@@ -16,6 +16,8 @@ import { IPC } from '@shared/ipc.js';
 
 const SHOW_GRID_ID = 'show-grid';
 let showGridChecked = false;
+const PANEL_IDS = { rail: 'show-slide-list', side: 'show-sidebar' } as const;
+let panelsChecked = { rail: true, side: true };
 
 /** The window a menu item was used from, which receives its command. */
 function menuTarget(window: unknown): BrowserWindow | undefined {
@@ -63,6 +65,26 @@ export function installAppMenu(): void {
           click: (_item, window) => menuTarget(window)?.webContents.send(IPC.viewToggleGrid),
         },
         { type: 'separator' },
+        // Like the grid, ⌥⌘1 and ⌥⌘2 are the page's keys; the menu follows.
+        {
+          id: PANEL_IDS.rail,
+          label: 'Show Slide List',
+          type: 'checkbox',
+          checked: panelsChecked.rail,
+          accelerator: 'Alt+CmdOrCtrl+1',
+          registerAccelerator: false,
+          click: (_item, window) => menuTarget(window)?.webContents.send(IPC.viewTogglePanel, 'rail'),
+        },
+        {
+          id: PANEL_IDS.side,
+          label: 'Show Sidebar',
+          type: 'checkbox',
+          checked: panelsChecked.side,
+          accelerator: 'Alt+CmdOrCtrl+2',
+          registerAccelerator: false,
+          click: (_item, window) => menuTarget(window)?.webContents.send(IPC.viewTogglePanel, 'side'),
+        },
+        { type: 'separator' },
         { role: 'reload' },
         { role: 'forceReload' },
         { role: 'toggleDevTools' },
@@ -101,4 +123,13 @@ export function setShowGridChecked(checked: boolean): void {
   showGridChecked = checked;
   const item = Menu.getApplicationMenu()?.getMenuItemById(SHOW_GRID_ID);
   if (item) item.checked = checked;
+}
+
+/** Reflect which editor panels are showing in the View menu. */
+export function setPanelsChecked(shown: { rail: boolean; side: boolean }): void {
+  panelsChecked = { rail: shown.rail !== false, side: shown.side !== false };
+  for (const panel of ['rail', 'side'] as const) {
+    const item = Menu.getApplicationMenu()?.getMenuItemById(PANEL_IDS[panel]);
+    if (item) item.checked = panelsChecked[panel];
+  }
 }

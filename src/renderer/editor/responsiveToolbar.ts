@@ -2,6 +2,8 @@ const LAYOUT_CLASSES = [
   'toolbar-hide-deck-name',
   'toolbar-compact-file',
   'toolbar-compact-secondary',
+  'toolbar-icons-only',
+  'toolbar-hide-brand',
 ] as const;
 
 const COLLISION_GAP = 8;
@@ -52,6 +54,14 @@ export function refreshResponsiveToolbar(toolbar: HTMLElement): void {
   if (flowingGroupsFit(toolbar)) return;
 
   toolbar.classList.add('toolbar-compact-secondary');
+  if (flowingGroupsFit(toolbar)) return;
+
+  // Half a laptop screen (macOS Split View): Insert keeps its icons, which
+  // carry their names as tooltips, and then the wordmark steps aside; About
+  // stays in the application menu.
+  toolbar.classList.add('toolbar-icons-only');
+  if (flowingGroupsFit(toolbar)) return;
+  toolbar.classList.add('toolbar-hide-brand');
 }
 
 /**

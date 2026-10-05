@@ -1,3 +1,4 @@
+import { PanelToggles } from './panelToggles.js';
 import { applyTemplateToDeck } from '@shared/deckTemplates.js';
 import { confirmReplaceTemplate, showTemplateNameDialog, showTemplatePicker } from './templateDialogs.js';
 import '../player/player.css';
@@ -151,6 +152,11 @@ new SlideWarnings(el('side'), store, el('canvas'), () => canvas.editingElementId
 canvas.onGridChange = (shown) => window.api.setGridState(shown);
 window.api.setGridState(canvas.isGridVisible());
 window.api.onToggleGrid(() => canvas.toggleGrid());
+// View › Show Slide List / Show Sidebar, kept in step the same way.
+const panels = new PanelToggles(el('body'), el('canvas'));
+panels.onChange = (shown) => window.api.setPanelState(shown);
+window.api.setPanelState(panels.state());
+window.api.onTogglePanel((panel) => panels.toggle(panel));
 // File › New from Template / Save as Template / Apply Template.
 window.api.onTemplateCommand((command) => {
   if (command === 'new') void newFromTemplate();
@@ -1199,6 +1205,7 @@ const shellDeps: ShellDeps = {
   openTrim,
   openRaster,
   openFind: () => findBar.show(),
+  togglePanel: (panel) => panels.toggle(panel),
   undo: () => {
     if (agentSessionReady && agentSessionBridge) agentSessionBridge.undo(store.get().deck);
     else store.undo();

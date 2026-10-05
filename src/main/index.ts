@@ -6,7 +6,7 @@ import { basename, dirname, extname, join, resolve, sep } from 'node:path';
 import { BrowserWindow, app, clipboard, ipcMain, screen, shell } from 'electron';
 import type { Display, IpcMainInvokeEvent, WebContents } from 'electron';
 import { parseDeck, type Deck } from '@shared/deck.js';
-import { installAppMenu, setShowGridChecked } from './appMenu.js';
+import { installAppMenu, setPanelsChecked, setShowGridChecked } from './appMenu.js';
 import type { DeckHistoryDocument } from '@shared/deckHistory.js';
 import {
   CLIPBOARD_FORMAT,
@@ -743,6 +743,7 @@ function registerHandlers(): void {
   );
   // Answered synchronously during preload: `assetUrl` is called on first paint.
   ipcMain.on(IPC.viewGridState, (_event, shown: boolean) => setShowGridChecked(Boolean(shown)));
+  ipcMain.on(IPC.viewPanelState, (_event, shown: { rail: boolean; side: boolean }) => setPanelsChecked(shown ?? {}));
   ipcMain.on(IPC.deckKeyGet, (event) => {
     event.returnValue = ownerOf(event.sender)?.deckKey ?? NO_DECK_KEY;
   });

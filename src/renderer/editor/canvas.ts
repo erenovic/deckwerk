@@ -2335,7 +2335,7 @@ export class EditorCanvas {
     // are ordinary application controls. Capturing their pointer on the canvas
     // changes the pointer-up target and prevents Chromium from synthesising a
     // click, which made all three welcome actions appear inert.
-    if (target.closest('.welcome-screen, .zoom-controls, .notes-toggle, .notes-drawer, .find-bar')) return;
+    if (target.closest('.welcome-screen, .zoom-controls, .notes-toggle, .panel-toggle, .notes-drawer, .find-bar')) return;
     const slide = this.store.slide;
     if (!slide) return;
     this.clickDrilled = false;
@@ -3068,7 +3068,7 @@ export class EditorCanvas {
     if (
       this.drag.kind === 'none'
       && (ev.target as HTMLElement | null)?.closest?.(
-        '.welcome-screen, .zoom-controls, .notes-toggle, .notes-drawer',
+        '.welcome-screen, .zoom-controls, .notes-toggle, .panel-toggle, .notes-drawer',
       )
     ) {
       return;

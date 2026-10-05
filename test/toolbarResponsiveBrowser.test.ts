@@ -12,6 +12,9 @@ interface ToolbarLayout {
   fileVisible: boolean;
   moreVisible: boolean;
   insertLabels: string[];
+  /** Whether any Insert button still shows its word, not just its icon. */
+  insertWordsShown: boolean;
+  insertNames: string[];
   presentVisible: boolean;
 }
 
@@ -61,6 +64,9 @@ async function toolbarAt(
         fileVisible: visible('.toolbar-compact-file-action'),
         moreVisible: visible('.toolbar-compact-secondary-action'),
         insertLabels: [...centerNode.querySelectorAll('button')].map((button) => button.textContent.trim()),
+        insertWordsShown: [...centerNode.querySelectorAll('button > span')]
+          .some((label) => getComputedStyle(label).display !== 'none'),
+        insertNames: [...centerNode.querySelectorAll('button')].map((button) => button.getAttribute('aria-label')),
         presentVisible: visible('.toolbar-split-button'),
       };
     })()`),
@@ -86,6 +92,15 @@ describe.skipIf(!electronBinary)('responsive desktop toolbar', () => {
     expect(medium.centerRight).toBeLessThanOrEqual(medium.rightLeft);
     expect(medium.insertLabels).toEqual(expect.arrayContaining(['Text', 'Shape', 'Table']));
     expect(medium.presentVisible).toBe(true);
+
+    // Half a laptop screen (macOS Split View): Insert folds to its icons,
+    // which keep their names for tooltips and screen readers.
+    const half = await toolbarAt(600, (layout) => layout.classes.includes('toolbar-icons-only'));
+    expect(half.insertWordsShown).toBe(false);
+    expect(half.insertNames).toEqual(['Text', 'Shape', 'Table']);
+    expect(half.leftRight).toBeLessThanOrEqual(half.centerLeft);
+    expect(half.centerRight).toBeLessThanOrEqual(half.rightLeft);
+    expect(half.presentVisible).toBe(true);
 
     const narrow = await toolbarAt(500, (layout) => layout.classes.includes('toolbar-compact-file')
       && layout.classes.includes('toolbar-compact-secondary'));

@@ -139,7 +139,7 @@ type OpName =
   | 'click' | 'shift-click' | 'double-click text' | 'double-click image then text'
   | 'type nonce' | 'bold mid-word' | 'escape' | 'click empty' | 'marquee'
   | 'rail hop' | 'rail drag' | 'find next' | 'shift drag' | 'page numbers' | 'theme apply' | 'grid toggle' | 'undo' | 'redo' | 'undo round-trip' | 'delete selection'
-  | 'cmd+a' | 'group toggle';
+  | 'cmd+a' | 'group toggle' | 'panel toggle';
 
 interface Violation { seed: number; step: number; op: OpName; oracle: string; detail: string }
 
@@ -390,6 +390,7 @@ function chooseOp(next: () => number, pre: CrossState): OpName {
   if (pre.editing === null) add('page numbers', 1);
   if (pre.editing === null) add('theme apply', 1);
   add('grid toggle', 1);
+  add('panel toggle', 1);
   add('undo', 2);
   add('redo', 1);
   add('undo round-trip', 1);
@@ -625,6 +626,28 @@ async function performOp(
       for (const [id, text] of Object.entries(after)) {
         if (texts[id] !== undefined && texts[id] !== text) {
           flag('routing', `toggling the grid changed ${id}: "${texts[id]}" -> "${text}"`);
+        }
+      }
+      return 'same';
+    }
+    case 'panel toggle': {
+      // ⌥⌘1 / ⌥⌘2 from wherever focus is, mid-edit included: the slide list
+      // or sidebar goes away and comes back, and no word on the slide moves.
+      // Restored within the op, since rail ops click the list.
+      const panel = next() < 0.5 ? 'rail' : 'side';
+      const code = panel === 'rail' ? 'Digit1' : 'Digit2';
+      const shown = () => session.cdp.evaluate<boolean>(
+        `getComputedStyle(document.getElementById('${panel}')).display !== 'none'`);
+      const texts = await session.allTexts();
+      for (const expected of [false, true]) {
+        await session.chord(code.slice(-1), code, code === 'Digit1' ? 49 : 50, MOD | 1);
+        await wait(80);
+        if ((await shown()) !== expected) flag('routing', `Alt+Cmd/Ctrl+${code.slice(-1)} did not ${expected ? 'show' : 'hide'} the ${panel}`);
+      }
+      const after = await session.allTexts();
+      for (const [id, text] of Object.entries(after)) {
+        if (texts[id] !== undefined && texts[id] !== text) {
+          flag('routing', `toggling the ${panel} changed ${id}: "${texts[id]}" -> "${text}"`);
         }
       }
       return 'same';

@@ -234,6 +234,10 @@ const api = {
   onToggleGrid: (fn: () => void): (() => void) => on(IPC.viewToggleGrid, fn),
   /** Tell the application menu whether the grid is showing. */
   setGridState: (shown: boolean): void => ipcRenderer.send(IPC.viewGridState, shown),
+  /** View › Show Slide List or Show Sidebar was chosen from the application menu. */
+  onTogglePanel: (fn: (panel: 'rail' | 'side') => void): (() => void) => on(IPC.viewTogglePanel, fn),
+  /** Tell the application menu which panels are showing. */
+  setPanelState: (shown: { rail: boolean; side: boolean }): void => ipcRenderer.send(IPC.viewPanelState, shown),
   /** Arrange › Group or Ungroup was chosen from the application menu. */
   onArrangeCommand: (fn: (command: 'group' | 'ungroup') => void): (() => void) =>
     on(IPC.arrangeCommand, fn),
